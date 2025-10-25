@@ -2,10 +2,12 @@ openapi: 3.0.3
 info:
   title: GoLoanMe API
   version: 1.0.0
-  summary: API for simulated community funding with donations and contract-backed pledges (GLM credits).
-  description: >
+  description: |
+    **API for simulated community funding with donations and contract-backed pledges (GLM credits).**
+    
     GoLoanMe is a demo platform to help underserved communities organize micro-funding using **simulated GLM credits** (no real money rails).
     This API is **JWT (Auth0) protected**, **idempotent** for writes, **cursor-paginated**, and **API-first**.
+    
     **Disclaimer:** Non-financial, non-legal, educational use only; not a money transmitter.
   contact:
     name: GoLoanMe Team
@@ -18,18 +20,31 @@ servers:
     description: Local development
 tags:
   - name: Health
+    description: Service health and status endpoints
   - name: Users
+    description: User profile management and public user data
   - name: Terms
+    description: Contract terms template generation and management via LLM
   - name: Posts
+    description: Community funding posts (campaigns) with categories and goals
   - name: Pledges
+    description: Donations and contract-backed pledges to posts
   - name: Wallet
+    description: User wallet balance and GLM credit management
   - name: Ledger
+    description: Immutable transaction ledger entries
   - name: Circles
+    description: Sponsor circles for trusted community lenders
   - name: Comments
+    description: Discussion threads on posts
   - name: Mentions
+    description: User mentions and notifications
   - name: Reports
+    description: Content moderation and abuse reporting
   - name: Admin
+    description: Administrative actions (content moderation, user verification)
   - name: AI (internal)
+    description: Internal LLM-powered contract generation (server-only)
 
 security:
   - bearerAuth: []
@@ -45,45 +60,85 @@ components:
     AcceptLanguage:
       name: Accept-Language
       in: header
-      description: Response language preference (e.g., 'en', 'es').
+      description: |
+        Response language preference. Supported locales: 'en' (English), 'es' (Spanish).
+        Falls back to user's profile locale if not provided.
       required: false
-      schema: { type: string, example: en }
+      schema: 
+        type: string
+        enum: [en, es]
+        default: en
+        example: en
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      description: Provide a unique key to make POST/PUT/PATCH idempotent (recommended for pledge creation).
+      description: |
+        UUID v4 to make POST/PUT/PATCH idempotent. Server stores this key for 24h.
+        If the same key is sent twice, the cached response is returned without side effects.
+        **Critical for pledge creation to prevent double-charges.**
       required: false
-      schema: { type: string, maxLength: 128 }
+      schema: 
+        type: string
+        format: uuid
+        maxLength: 128
+        example: "550e8400-e29b-41d4-a716-446655440000"
     PageLimit:
       name: limit
       in: query
-      description: Max items to return.
-      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: Maximum number of items to return per page (1-100).
+      required: false
+      schema: 
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
     PageCursor:
       name: cursor
       in: query
-      description: Opaque cursor from a previous response for forward pagination.
-      schema: { type: string }
+      description: |
+        Opaque base64-encoded cursor from a previous response's `nextCursor` field.
+        Use this for forward pagination. Omit for the first page.
+      required: false
+      schema: 
+        type: string
+        example: "eyJpZCI6IjAxSEFCQzEyMyIsImRpciI6Im5leHQifQ=="
     PostId:
       name: id
       in: path
       required: true
-      schema: { type: string, description: ULID/UUID }
+      description: UUID of the post
+      schema: 
+        type: string
+        format: uuid
+        example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
     TermsId:
       name: id
       in: path
       required: true
-      schema: { type: string }
+      description: UUID of the terms template
+      schema: 
+        type: string
+        format: uuid
+        example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
     PledgeId:
       name: pledgeId
       in: path
       required: true
-      schema: { type: string }
+      description: UUID of the pledge
+      schema: 
+        type: string
+        format: uuid
+        example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
     CircleId:
       name: id
       in: path
       required: true
-      schema: { type: string }
+      description: UUID of the sponsor circle
+      schema: 
+        type: string
+        format: uuid
+        example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
 
   headers:
     X-Request-Id:
@@ -145,184 +200,548 @@ components:
 
     Locale:
       type: string
+      description: Supported locales for internationalization
       enum: [en, es]
       example: en
 
     Category:
       type: string
+      description: |
+        Post category for community funding needs.
+        Maps to display strings in UI via i18n (English/Spanish).
       enum: [medical, funeral, fun, vet, education, community, other]
+      example: medical
 
     UserPublic:
       type: object
-      required: [id, handle]
+      description: Public user profile (visible to all users)
+      required: [id, handle, createdAt]
       properties:
-        id: { type: string, description: ULID/UUID }
-        handle: { type: string, example: "carmen" }
-        avatarUrl: { type: string, format: uri, nullable: true }
-        bio: { type: string, maxLength: 280, nullable: true }
-        locale: { $ref: '#/components/schemas/Locale' }
+        id: 
+          type: string
+          format: uuid
+          description: User's unique identifier (UUID v4)
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        handle: 
+          type: string
+          description: |
+            Unique username/handle (3-30 chars, alphanumeric + underscore/dash).
+            Used in URLs and @mentions.
+          pattern: '^[a-zA-Z0-9_-]{3,30}$'
+          minLength: 3
+          maxLength: 30
+          example: "carmen_martinez"
+        avatarUrl: 
+          type: string
+          format: uri
+          nullable: true
+          description: URL to user's profile image (Cloudinary or Supabase)
+          example: "https://res.cloudinary.com/goloanme/image/upload/v1/avatars/carmen.jpg"
+        bio: 
+          type: string
+          maxLength: 280
+          nullable: true
+          description: User bio/description (Twitter-style length limit)
+          example: "Community organizer in San Antonio. Love helping local families."
+        locale: 
+          $ref: '#/components/schemas/Locale'
         interests:
           type: array
-          items: { type: string, example: "pets" }
+          description: User-selected interest tags for matching with posts
+          items: 
+            type: string
+            minLength: 2
+            maxLength: 30
+            example: "pets"
+          maxItems: 10
+          example: ["pets", "education", "healthcare"]
         sponsor:
           type: object
           nullable: true
+          description: Sponsor profile details (null if user is not a sponsor)
           properties:
-            verified: { type: boolean, example: true }
-            rating: { type: number, format: float, example: 4.8 }
+            verified: 
+              type: boolean
+              description: Admin-verified sponsor badge
+              example: true
+            rating: 
+              type: number
+              format: float
+              minimum: 0
+              maximum: 5
+              description: Average sponsor rating (0-5 stars)
+              example: 4.8
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp (ISO 8601)
+          example: "2024-01-15T10:30:00Z"
 
     Me:
+      description: Current authenticated user's full profile (includes private fields)
       allOf:
         - $ref: '#/components/schemas/UserPublic'
         - type: object
+          required: [email, auth0_sub]
           properties:
-            email: { type: string, format: email }
-            auth0_sub: { type: string }
+            email: 
+              type: string
+              format: email
+              description: User's email address (from Auth0)
+              example: "carmen@example.com"
+            auth0_sub: 
+              type: string
+              description: |
+                Auth0 subject identifier (unique across all identity providers).
+                Format: `{provider}|{provider_user_id}`
+              pattern: '^(auth0|google-oauth2|facebook)\|[a-zA-Z0-9_-]+$'
+              example: "google-oauth2|108234567890123456789"
 
     TermsInputs:
       type: object
+      description: User inputs for LLM-generated contract terms template
       required: [title]
       properties:
-        title: { type: string, example: "Standard Community Contract" }
-        interestPercent: { type: number, format: float, minimum: 0, maximum: 100, example: 5 }
-        cadence: { type: string, example: "monthly" }
-        graceDays: { type: integer, minimum: 0, example: 7 }
-        collateralText: { type: string, example: "Accepts small jewelry or electronics as collateral." }
-        remedies: { type: string, example: "Pause contributions; mediation with community advocate." }
-        disclaimers: { type: string, example: "Non-legal template; educational use." }
-        locality: { type: string, example: "San Antonio, TX" }
+        title: 
+          type: string
+          minLength: 5
+          maxLength: 100
+          description: Descriptive title for the terms template
+          example: "Standard Community Contract - 5% Monthly"
+        interestPercent: 
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          description: Annual interest rate percentage (0-100)
+          example: 5.0
+        cadence: 
+          type: string
+          enum: [weekly, biweekly, monthly, quarterly]
+          description: Repayment frequency
+          example: "monthly"
+        graceDays: 
+          type: integer
+          minimum: 0
+          maximum: 365
+          description: Grace period days before late fees apply
+          example: 7
+        collateralText: 
+          type: string
+          maxLength: 500
+          description: Free-text description of accepted collateral (non-binding)
+          example: "Accepts small jewelry or electronics as collateral (symbolic only, educational purpose)."
+        remedies: 
+          type: string
+          maxLength: 1000
+          description: Free-text remediation steps for non-payment
+          example: "Pause contributions; mediation with community advocate; repayment plan adjustment."
+        disclaimers: 
+          type: string
+          maxLength: 1000
+          description: Legal disclaimers and educational use notice
+          example: "Non-legal template for educational use only. Not enforceable. Simulated currency."
+        locality: 
+          type: string
+          maxLength: 100
+          description: City/region for context (does not affect legal validity)
+          example: "San Antonio, TX, USA"
 
     TermsTemplate:
       type: object
+      description: Contract terms template generated via LLM (Gemini) and stored as HTML/PDF
       required: [id, userId, title, html, createdAt]
       properties:
-        id: { type: string }
-        userId: { type: string }
-        title: { type: string }
-        inputs: { $ref: '#/components/schemas/TermsInputs' }
-        llmVersion: { type: string, example: "gemini-2.5-flash" }
-        html: { type: string, description: "Contract HTML" }
-        pdfUrl: { type: string, format: uri, nullable: true }
-        createdAt: { type: string, format: date-time }
+        id: 
+          type: string
+          format: uuid
+          description: Template unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        userId: 
+          type: string
+          format: uuid
+          description: User who created this template
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        title: 
+          type: string
+          description: Template title
+          example: "Standard Community Contract - 5% Monthly"
+        inputs: 
+          description: Original form inputs used to generate this template
+          allOf:
+            - $ref: '#/components/schemas/TermsInputs'
+        llmVersion: 
+          type: string
+          description: LLM model used for generation (e.g., google/gemini-2.5-flash)
+          example: "google/gemini-2.5-flash"
+        html: 
+          type: string
+          description: Generated contract HTML (plain language, structured sections)
+          example: "<div class='contract'>...</div>"
+        pdfUrl: 
+          type: string
+          format: uri
+          nullable: true
+          description: URL to downloadable PDF version (stored in Cloudinary/Supabase)
+          example: "https://storage.example.com/terms/01HAB2C3.pdf"
+        createdAt: 
+          type: string
+          format: date-time
+          description: Template creation timestamp
+          example: "2024-01-15T10:30:00Z"
 
     Post:
       type: object
+      description: Community funding post/campaign for donations and contract pledges
       required: [id, owner, title, description, category, acceptContracts, status, createdAt]
       properties:
-        id: { type: string }
-        owner: { $ref: '#/components/schemas/UserPublic' }
-        title: { type: string, example: "Bike for commuting to work" }
-        description: { type: string }
-        category: { $ref: '#/components/schemas/Category' }
-        goalGLM: { type: integer, minimum: 0, example: 300 }
+        id: 
+          type: string
+          format: uuid
+          description: Post unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        owner: 
+          description: User who created this post
+          allOf:
+            - $ref: '#/components/schemas/UserPublic'
+        title: 
+          type: string
+          minLength: 5
+          maxLength: 100
+          description: Post title (concise, descriptive)
+          example: "Bike for commuting to work"
+        description: 
+          type: string
+          minLength: 20
+          maxLength: 5000
+          description: Detailed explanation of need and intended use of funds
+          example: "I need a reliable bicycle to commute to my new job. Public transit adds 2 hours to my day. A bike would save time and money."
+        category: 
+          $ref: '#/components/schemas/Category'
+        goalGLM: 
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          nullable: true
+          description: Target funding amount in GLM credits (optional)
+          example: 300
         images:
           type: array
-          items: { type: string, format: uri }
+          description: Image URLs (Cloudinary/Supabase) - max 5 images
+          maxItems: 5
+          items: 
+            type: string
+            format: uri
+            example: "https://res.cloudinary.com/goloanme/image/upload/v1/posts/bike.jpg"
         links:
           type: array
-          items: { type: string, format: uri }
-        acceptContracts: { type: boolean, example: true }
-        status: { type: string, enum: [open, closed], example: open }
+          description: External reference links (receipts, quotes, etc.) - max 10
+          maxItems: 10
+          items: 
+            type: string
+            format: uri
+            example: "https://example.com/bike-quote.pdf"
+        acceptContracts: 
+          type: boolean
+          description: |
+            If true, post owner pre-opts-in to receive contract-backed pledges (clickwrap).
+            Pledgers can attach their standing terms templates.
+          example: true
+        status: 
+          type: string
+          enum: [open, closed]
+          description: Post status - owner can close when goal is met or no longer needed
+          example: open
         stats:
           type: object
+          description: Aggregated pledge statistics (computed on read)
           properties:
-            fundedGLM: { type: integer, example: 220 }
-            donors: { type: integer, example: 3 }
-            sponsors: { type: integer, example: 1 }
-        createdAt: { type: string, format: date-time }
+            fundedGLM: 
+              type: integer
+              description: Total GLM pledged (donations + contracts)
+              example: 220
+            donors: 
+              type: integer
+              description: Count of unique donation pledgers
+              example: 3
+            sponsors: 
+              type: integer
+              description: Count of unique contract pledgers
+              example: 1
+        createdAt: 
+          type: string
+          format: date-time
+          description: Post creation timestamp
+          example: "2024-01-15T10:30:00Z"
 
     PledgeType:
       type: string
+      description: |
+        Type of pledge:
+        - `donation`: No strings attached, funds transferred immediately
+        - `contract`: Contract-backed pledge with terms, creates obligation record
       enum: [donation, contract]
+      example: donation
 
     PledgeCreate:
       type: object
+      description: Create a new pledge (donation or contract-backed)
       required: [type, amountGLM]
       properties:
-        type: { $ref: '#/components/schemas/PledgeType' }
-        amountGLM: { type: integer, minimum: 1 }
+        type: 
+          $ref: '#/components/schemas/PledgeType'
+        amountGLM: 
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: Amount to pledge in GLM credits
+          example: 100
         termsId:
           type: string
+          format: uuid
           nullable: true
-          description: Required when type=contract. Must belong to pledger.
+          description: |
+            Required when type=contract. Must be a TermsTemplate owned by the pledger.
+            Post must have acceptContracts=true or request will fail with 409.
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Optional message to post owner
+          example: "Good luck with your new job! Stay safe on the roads."
 
     Pledge:
       type: object
+      description: A completed pledge (donation or contract) on a post
       required: [id, postId, pledger, type, amountGLM, createdAt]
       properties:
-        id: { type: string }
-        postId: { type: string }
-        pledger: { $ref: '#/components/schemas/UserPublic' }
-        type: { $ref: '#/components/schemas/PledgeType' }
-        amountGLM: { type: integer }
+        id: 
+          type: string
+          format: uuid
+          description: Pledge unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        postId: 
+          type: string
+          format: uuid
+          description: Post this pledge is for
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        pledger: 
+          description: User who made the pledge
+          allOf:
+            - $ref: '#/components/schemas/UserPublic'
+        type: 
+          $ref: '#/components/schemas/PledgeType'
+        amountGLM: 
+          type: integer
+          description: Pledged amount in GLM credits
+          example: 100
         termsSummary:
           type: object
           nullable: true
+          description: Summary of attached contract terms (null for donations)
           properties:
-            termsId: { type: string }
-            title: { type: string }
-            interestPercent: { type: number, format: float }
-            cadence: { type: string }
-            graceDays: { type: integer }
-        createdAt: { type: string, format: date-time }
+            termsId: 
+              type: string
+              format: uuid
+              example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+            title: 
+              type: string
+              example: "Standard Community Contract - 5% Monthly"
+            interestPercent: 
+              type: number
+              format: float
+              example: 5.0
+            cadence: 
+              type: string
+              example: "monthly"
+            graceDays: 
+              type: integer
+              example: 7
+        note:
+          type: string
+          nullable: true
+          description: Optional message from pledger
+          example: "Good luck with your new job!"
+        createdAt: 
+          type: string
+          format: date-time
+          description: Pledge creation timestamp
+          example: "2024-01-15T10:30:00Z"
 
     Account:
       type: object
+      description: |
+        Wallet account for GLM credits. Every user has one account; every post has one account.
+        Balance is computed from immutable LedgerEntry records.
       required: [id, ownerType, ownerId, balanceGLM]
       properties:
-        id: { type: string }
-        ownerType: { type: string, enum: [user, post] }
-        ownerId: { type: string }
-        balanceGLM: { type: integer, example: 1000 }
+        id: 
+          type: string
+          format: uuid
+          description: Account unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        ownerType: 
+          type: string
+          enum: [user, post]
+          description: Account owner type (polymorphic)
+          example: user
+        ownerId: 
+          type: string
+          format: uuid
+          description: UUID of owner (User or Post)
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        balanceGLM: 
+          type: integer
+          description: Current balance in GLM credits (computed from ledger)
+          example: 1000
 
     LedgerEntry:
       type: object
+      description: |
+        Immutable transaction record in the GLM credits ledger.
+        All transfers (pledges, repayments, internal transfers) create two entries: one debit, one credit.
       required: [id, accountId, direction, amountGLM, refType, refId, createdAt]
       properties:
-        id: { type: string }
-        accountId: { type: string }
-        direction: { type: string, enum: [credit, debit] }
-        amountGLM: { type: integer }
-        refType: { type: string, enum: [pledge, transfer, repayment] }
-        refId: { type: string }
-        createdAt: { type: string, format: date-time }
+        id: 
+          type: string
+          format: uuid
+          description: Ledger entry unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        accountId: 
+          type: string
+          format: uuid
+          description: Account this entry belongs to
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        direction: 
+          type: string
+          enum: [credit, debit]
+          description: Entry direction (credit increases balance, debit decreases)
+          example: credit
+        amountGLM: 
+          type: integer
+          minimum: 1
+          description: Amount in GLM credits (always positive)
+          example: 100
+        refType: 
+          type: string
+          enum: [pledge, transfer, repayment]
+          description: Type of transaction that created this entry
+          example: pledge
+        refId: 
+          type: string
+          format: uuid
+          description: UUID of the referenced object (Pledge, Transfer, etc.)
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        createdAt: 
+          type: string
+          format: date-time
+          description: Entry timestamp (immutable)
+          example: "2024-01-15T10:30:00Z"
 
     Comment:
       type: object
+      description: Discussion comment on a post (supports @mentions)
       required: [id, postId, author, text, createdAt]
       properties:
-        id: { type: string }
-        postId: { type: string }
-        author: { $ref: '#/components/schemas/UserPublic' }
-        text: { type: string, maxLength: 2000 }
-        createdAt: { type: string, format: date-time }
+        id: 
+          type: string
+          format: uuid
+          description: Comment unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        postId: 
+          type: string
+          format: uuid
+          description: Post this comment belongs to
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        author: 
+          description: User who wrote the comment
+          allOf:
+            - $ref: '#/components/schemas/UserPublic'
+        text: 
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Comment text (supports @mentions with @handle syntax)
+          example: "Great initiative @carmen! I can help spread the word."
+        createdAt: 
+          type: string
+          format: date-time
+          description: Comment creation timestamp
+          example: "2024-01-15T10:30:00Z"
 
     MentionCreate:
       type: object
+      description: Create @mentions for one or more users on a post
       required: [targets]
       properties:
         targets:
           type: array
-          items: { type: string, description: "User handles to mention" }
+          description: Array of user handles to mention (without @ prefix)
+          minItems: 1
+          maxItems: 20
+          items: 
+            type: string
+            pattern: '^[a-zA-Z0-9_-]{3,30}$'
+            description: User handle to mention
+            example: "carmen_martinez"
+          example: ["carmen_martinez", "sofia_ramirez"]
 
     Circle:
       type: object
-      required: [id, owner, name, members]
+      description: |
+        Sponsor circle - a group of trusted sponsors/lenders.
+        Members can collectively view and pledge to posts.
+      required: [id, owner, name, members, createdAt]
       properties:
-        id: { type: string }
-        owner: { $ref: '#/components/schemas/UserPublic' }
-        name: { type: string }
+        id: 
+          type: string
+          format: uuid
+          description: Circle unique identifier
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        owner: 
+          description: User who created and manages this circle
+          allOf:
+            - $ref: '#/components/schemas/UserPublic'
+        name: 
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Circle display name
+          example: "San Antonio Community Sponsors"
         members:
           type: array
-          items: { $ref: '#/components/schemas/UserPublic' }
+          description: Circle members (includes owner)
+          maxItems: 100
+          items: 
+            $ref: '#/components/schemas/UserPublic'
+        createdAt:
+          type: string
+          format: date-time
+          description: Circle creation timestamp
+          example: "2024-01-15T10:30:00Z"
 
     ReportCreate:
       type: object
+      description: Report abusive content or user behavior for moderation review
       required: [targetType, targetId, reason]
       properties:
-        targetType: { type: string, enum: [post, comment, user] }
-        targetId: { type: string }
-        reason: { type: string, maxLength: 500 }
+        targetType: 
+          type: string
+          enum: [post, comment, user]
+          description: Type of content being reported
+          example: post
+        targetId: 
+          type: string
+          format: uuid
+          description: UUID of the reported item
+          example: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+        reason: 
+          type: string
+          minLength: 10
+          maxLength: 500
+          description: Detailed explanation of the issue
+          example: "This post contains misleading information and appears to be a scam."
 
     PaginatedPosts:
       type: object
@@ -345,116 +764,291 @@ paths:
   /health:
     get:
       tags: [Health]
-      summary: Liveness probe
+      summary: Service health check and liveness probe
+      description: |
+        Returns service health status. Used by Vercel for health monitoring.
+        **Public endpoint** - no authentication required.
+      operationId: getHealth
       security: []  # public
       responses:
         '200':
-          description: OK
+          description: Service is healthy and operational
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
                 type: object
+                required: [status, version, timestamp]
                 properties:
-                  status: { type: string, example: ok }
-                  version: { type: string, example: 1.0.0 }
+                  status: 
+                    type: string
+                    enum: [ok]
+                    description: Health status
+                    example: ok
+                  version: 
+                    type: string
+                    description: API version
+                    example: "1.0.0"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Current server time (ISO 8601)
+                    example: "2024-01-15T10:30:00Z"
+                  uptime:
+                    type: integer
+                    description: Server uptime in seconds
+                    example: 86400
 
   /me:
     get:
       tags: [Users]
-      summary: Get my profile
+      summary: Get current authenticated user's full profile
+      description: |
+        Returns the authenticated user's complete profile including private fields (email, auth0_sub).
+        **Protected endpoint** - requires valid JWT from Auth0.
+      operationId: getMyProfile
       parameters:
         - $ref: '#/components/parameters/AcceptLanguage'
       responses:
         '200':
-          description: Current user profile
+          description: Current user's full profile
           headers:
-            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            X-Request-Id: 
+              $ref: '#/components/headers/X-Request-Id'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Me' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+              schema: 
+                $ref: '#/components/schemas/Me'
+              examples:
+                fullProfile:
+                  value:
+                    id: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+                    handle: "carmen_martinez"
+                    email: "carmen@example.com"
+                    auth0_sub: "google-oauth2|108234567890123456789"
+                    avatarUrl: "https://res.cloudinary.com/goloanme/image/upload/v1/avatars/carmen.jpg"
+                    bio: "Community organizer in San Antonio"
+                    locale: "en"
+                    interests: ["pets", "education", "healthcare"]
+                    sponsor: null
+                    createdAt: "2024-01-15T10:30:00Z"
+        '401': 
+          $ref: '#/components/responses/Unauthorized'
     patch:
       tags: [Users]
-      summary: Update my profile
+      summary: Update current user's profile
+      description: |
+        Update editable fields of the authenticated user's profile.
+        - **handle** can only be changed once per 30 days
+        - **email** and **auth0_sub** cannot be changed (managed by Auth0)
+      operationId: updateMyProfile
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
       requestBody:
         required: true
+        description: Fields to update (all optional)
         content:
           application/json:
             schema:
               type: object
               properties:
-                handle: { type: string }
-                bio: { type: string }
-                locale: { $ref: '#/components/schemas/Locale' }
+                handle: 
+                  type: string
+                  pattern: '^[a-zA-Z0-9_-]{3,30}$'
+                  minLength: 3
+                  maxLength: 30
+                  description: New username/handle (must be unique)
+                  example: "carmen_m"
+                avatarUrl:
+                  type: string
+                  format: uri
+                  nullable: true
+                  description: URL to new avatar image
+                  example: "https://res.cloudinary.com/goloanme/image/upload/v1/avatars/new.jpg"
+                bio: 
+                  type: string
+                  maxLength: 280
+                  nullable: true
+                  description: Updated bio text
+                  example: "Passionate about helping my community thrive"
+                locale: 
+                  $ref: '#/components/schemas/Locale'
                 interests:
                   type: array
-                  items: { type: string }
+                  maxItems: 10
+                  items: 
+                    type: string
+                    minLength: 2
+                    maxLength: 30
+                  description: Updated interest tags
+                  example: ["education", "healthcare", "community"]
+            examples:
+              updateBio:
+                value:
+                  bio: "Updated bio text"
+                  locale: "es"
       responses:
         '200':
-          description: Updated profile
+          description: Profile successfully updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Me' }
+              schema: 
+                $ref: '#/components/schemas/Me'
         '400':
-          description: Validation error
+          description: Validation error (e.g., handle already taken, invalid format)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+              schema: 
+                $ref: '#/components/schemas/Error'
+              examples:
+                handleTaken:
+                  value:
+                    error:
+                      code: "VALIDATION_ERROR"
+                      message: "Handle 'carmen_m' is already taken"
+                      details:
+                        field: "handle"
+        '401': 
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /users/{handle}:
     get:
       tags: [Users]
       summary: Get a user's public profile by handle
+      description: |
+        Retrieve any user's public profile by their unique handle.
+        **Public endpoint** - no authentication required.
+        Does not expose private fields (email, auth0_sub).
+      operationId: getUserByHandle
       security: []  # public
       parameters:
         - name: handle
           in: path
           required: true
-          schema: { type: string }
+          description: Unique username/handle of the user
+          schema: 
+            type: string
+            pattern: '^[a-zA-Z0-9_-]{3,30}$'
+            example: "carmen_martinez"
       responses:
         '200':
-          description: Public profile
+          description: Public user profile
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/UserPublic' }
-        '404': { $ref: '#/components/responses/NotFound' }
+              schema: 
+                $ref: '#/components/schemas/UserPublic'
+              examples:
+                sponsorProfile:
+                  value:
+                    id: "01HAB2C3D4E5F6G7H8J9K0MNPQ"
+                    handle: "sofia_ramirez"
+                    avatarUrl: "https://res.cloudinary.com/goloanme/image/upload/v1/avatars/sofia.jpg"
+                    bio: "Verified sponsor helping local families"
+                    locale: "en"
+                    interests: ["community", "education"]
+                    sponsor:
+                      verified: true
+                      rating: 4.9
+                    createdAt: "2023-12-01T08:00:00Z"
+        '404': 
+          $ref: '#/components/responses/NotFound'
 
   /terms:
     post:
       tags: [Terms]
-      summary: Create a Terms template (LLM-backed)
-      description: Generates HTML + JSON from user inputs; stores HTML and renders PDF.
+      summary: Generate contract terms template via LLM
+      description: |
+        Creates a new terms template powered by **Google Gemini** via OpenRouter.
+        
+        **Process:**
+        1. User provides form inputs (interest rate, cadence, grace period, etc.)
+        2. Server calls OpenRouter → Gemini 2.5 Flash model
+        3. LLM generates structured JSON + plain-language HTML contract
+        4. Server renders HTML → PDF and stores in Cloudinary/Supabase
+        5. Returns full TermsTemplate with pdfUrl
+        
+        **Idempotency:** Recommended to prevent duplicate generation on retry.
+        
+        **Rate Limiting:** 5 requests per minute per user (LLM quota protection).
+        
+        **Fallback:** On 429 rate limit, server automatically retries with secondary model.
+      operationId: createTermsTemplate
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AcceptLanguage'
       requestBody:
         required: true
+        description: Contract terms form inputs for LLM generation
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/TermsInputs' }
+            schema: 
+              $ref: '#/components/schemas/TermsInputs'
             examples:
-              example:
+              standardContract:
+                summary: Standard 5% monthly contract
                 value:
-                  title: Standard Community Contract
-                  interestPercent: 5
+                  title: "Standard Community Contract - 5% Monthly"
+                  interestPercent: 5.0
                   cadence: monthly
                   graceDays: 7
-                  collateralText: Accepts small jewelry as collateral.
-                  remedies: Pause contributions; mediation.
-                  disclaimers: Non-legal template; educational use.
-                  locality: San Antonio, TX
+                  collateralText: "Accepts small jewelry or electronics as collateral (symbolic only)."
+                  remedies: "Pause contributions; mediation with community advocate; adjust repayment plan."
+                  disclaimers: "Non-legal template for educational use only. Not enforceable. Simulated currency."
+                  locality: "San Antonio, TX, USA"
+              zeroInterest:
+                summary: Zero-interest goodwill contract
+                value:
+                  title: "Community Goodwill Agreement"
+                  interestPercent: 0
+                  cadence: monthly
+                  graceDays: 14
+                  collateralText: "No collateral required. Trust-based."
+                  remedies: "Open communication; flexible repayment."
+                  disclaimers: "Educational template only."
+                  locality: "Austin, TX, USA"
       responses:
         '201':
-          description: Terms created
+          description: Terms template successfully generated
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TermsTemplate' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+              schema: 
+                $ref: '#/components/schemas/TermsTemplate'
+        '400':
+          description: Invalid input parameters
+          content:
+            application/json:
+              schema: 
+                $ref: '#/components/schemas/Error'
+        '401': 
+          $ref: '#/components/responses/Unauthorized'
         '422':
-          description: LLM or validation error
+          description: LLM generation error (invalid output, timeout, etc.)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: 
+                $ref: '#/components/schemas/Error'
+              examples:
+                llmTimeout:
+                  value:
+                    error:
+                      code: "LLM_TIMEOUT"
+                      message: "LLM request timed out after 30s. Please retry."
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /terms/{id}:
     get:
