@@ -1,0 +1,1041 @@
+openapi: 3.0.3
+info:
+  title: GoLoanMe API
+  version: 1.0.0
+  summary: API for simulated community funding with donations and contract-backed pledges (GLM credits).
+  description: >
+    GoLoanMe is a demo platform to help underserved communities organize micro-funding using **simulated GLM credits** (no real money rails).
+    This API is **JWT (Auth0) protected**, **idempotent** for writes, **cursor-paginated**, and **API-first**.
+    **Disclaimer:** Non-financial, non-legal, educational use only; not a money transmitter.
+  contact:
+    name: GoLoanMe Team
+  license:
+    name: MIT
+servers:
+  - url: https://api.goloanme.app/v1
+    description: Production (Vercel)
+  - url: http://localhost:3000/api/v1
+    description: Local development
+tags:
+  - name: Health
+  - name: Users
+  - name: Terms
+  - name: Posts
+  - name: Pledges
+  - name: Wallet
+  - name: Ledger
+  - name: Circles
+  - name: Comments
+  - name: Mentions
+  - name: Reports
+  - name: Admin
+  - name: AI (internal)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT # Auth0 access tokens
+
+  parameters:
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      description: Response language preference (e.g., 'en', 'es').
+      required: false
+      schema: { type: string, example: en }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: Provide a unique key to make POST/PUT/PATCH idempotent (recommended for pledge creation).
+      required: false
+      schema: { type: string, maxLength: 128 }
+    PageLimit:
+      name: limit
+      in: query
+      description: Max items to return.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    PageCursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous response for forward pagination.
+      schema: { type: string }
+    PostId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, description: ULID/UUID }
+    TermsId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    PledgeId:
+      name: pledgeId
+      in: path
+      required: true
+      schema: { type: string }
+    CircleId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  headers:
+    X-Request-Id:
+      description: Correlation ID for this request.
+      schema: { type: string }
+    X-RateLimit-Limit:
+      description: Requests allowed in the current window.
+      schema: { type: integer }
+    X-RateLimit-Remaining:
+      description: Requests remaining in the current window.
+      schema: { type: integer }
+    Retry-After:
+      description: Seconds to wait before retrying (sent on 429).
+      schema: { type: integer }
+
+  responses:
+    Unauthorized:
+      description: Unauthorized (missing/invalid JWT).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            unauthorized:
+              value: { error: { code: "UNAUTHORIZED", message: "Missing or invalid bearer token" } }
+    Forbidden:
+      description: Forbidden.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limited.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/Retry-After'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    Locale:
+      type: string
+      enum: [en, es]
+      example: en
+
+    Category:
+      type: string
+      enum: [medical, funeral, fun, vet, education, community, other]
+
+    UserPublic:
+      type: object
+      required: [id, handle]
+      properties:
+        id: { type: string, description: ULID/UUID }
+        handle: { type: string, example: "carmen" }
+        avatarUrl: { type: string, format: uri, nullable: true }
+        bio: { type: string, maxLength: 280, nullable: true }
+        locale: { $ref: '#/components/schemas/Locale' }
+        interests:
+          type: array
+          items: { type: string, example: "pets" }
+        sponsor:
+          type: object
+          nullable: true
+          properties:
+            verified: { type: boolean, example: true }
+            rating: { type: number, format: float, example: 4.8 }
+
+    Me:
+      allOf:
+        - $ref: '#/components/schemas/UserPublic'
+        - type: object
+          properties:
+            email: { type: string, format: email }
+            auth0_sub: { type: string }
+
+    TermsInputs:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, example: "Standard Community Contract" }
+        interestPercent: { type: number, format: float, minimum: 0, maximum: 100, example: 5 }
+        cadence: { type: string, example: "monthly" }
+        graceDays: { type: integer, minimum: 0, example: 7 }
+        collateralText: { type: string, example: "Accepts small jewelry or electronics as collateral." }
+        remedies: { type: string, example: "Pause contributions; mediation with community advocate." }
+        disclaimers: { type: string, example: "Non-legal template; educational use." }
+        locality: { type: string, example: "San Antonio, TX" }
+
+    TermsTemplate:
+      type: object
+      required: [id, userId, title, html, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        title: { type: string }
+        inputs: { $ref: '#/components/schemas/TermsInputs' }
+        llmVersion: { type: string, example: "gemini-2.5-flash" }
+        html: { type: string, description: "Contract HTML" }
+        pdfUrl: { type: string, format: uri, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    Post:
+      type: object
+      required: [id, owner, title, description, category, acceptContracts, status, createdAt]
+      properties:
+        id: { type: string }
+        owner: { $ref: '#/components/schemas/UserPublic' }
+        title: { type: string, example: "Bike for commuting to work" }
+        description: { type: string }
+        category: { $ref: '#/components/schemas/Category' }
+        goalGLM: { type: integer, minimum: 0, example: 300 }
+        images:
+          type: array
+          items: { type: string, format: uri }
+        links:
+          type: array
+          items: { type: string, format: uri }
+        acceptContracts: { type: boolean, example: true }
+        status: { type: string, enum: [open, closed], example: open }
+        stats:
+          type: object
+          properties:
+            fundedGLM: { type: integer, example: 220 }
+            donors: { type: integer, example: 3 }
+            sponsors: { type: integer, example: 1 }
+        createdAt: { type: string, format: date-time }
+
+    PledgeType:
+      type: string
+      enum: [donation, contract]
+
+    PledgeCreate:
+      type: object
+      required: [type, amountGLM]
+      properties:
+        type: { $ref: '#/components/schemas/PledgeType' }
+        amountGLM: { type: integer, minimum: 1 }
+        termsId:
+          type: string
+          nullable: true
+          description: Required when type=contract. Must belong to pledger.
+
+    Pledge:
+      type: object
+      required: [id, postId, pledger, type, amountGLM, createdAt]
+      properties:
+        id: { type: string }
+        postId: { type: string }
+        pledger: { $ref: '#/components/schemas/UserPublic' }
+        type: { $ref: '#/components/schemas/PledgeType' }
+        amountGLM: { type: integer }
+        termsSummary:
+          type: object
+          nullable: true
+          properties:
+            termsId: { type: string }
+            title: { type: string }
+            interestPercent: { type: number, format: float }
+            cadence: { type: string }
+            graceDays: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    Account:
+      type: object
+      required: [id, ownerType, ownerId, balanceGLM]
+      properties:
+        id: { type: string }
+        ownerType: { type: string, enum: [user, post] }
+        ownerId: { type: string }
+        balanceGLM: { type: integer, example: 1000 }
+
+    LedgerEntry:
+      type: object
+      required: [id, accountId, direction, amountGLM, refType, refId, createdAt]
+      properties:
+        id: { type: string }
+        accountId: { type: string }
+        direction: { type: string, enum: [credit, debit] }
+        amountGLM: { type: integer }
+        refType: { type: string, enum: [pledge, transfer, repayment] }
+        refId: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Comment:
+      type: object
+      required: [id, postId, author, text, createdAt]
+      properties:
+        id: { type: string }
+        postId: { type: string }
+        author: { $ref: '#/components/schemas/UserPublic' }
+        text: { type: string, maxLength: 2000 }
+        createdAt: { type: string, format: date-time }
+
+    MentionCreate:
+      type: object
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          items: { type: string, description: "User handles to mention" }
+
+    Circle:
+      type: object
+      required: [id, owner, name, members]
+      properties:
+        id: { type: string }
+        owner: { $ref: '#/components/schemas/UserPublic' }
+        name: { type: string }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/UserPublic' }
+
+    ReportCreate:
+      type: object
+      required: [targetType, targetId, reason]
+      properties:
+        targetType: { type: string, enum: [post, comment, user] }
+        targetId: { type: string }
+        reason: { type: string, maxLength: 500 }
+
+    PaginatedPosts:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Post' }
+        nextCursor: { type: string, nullable: true }
+
+    PaginatedPledges:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Pledge' }
+        nextCursor: { type: string, nullable: true }
+
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []  # public
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  version: { type: string, example: 1.0.0 }
+
+  /me:
+    get:
+      tags: [Users]
+      summary: Get my profile
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Current user profile
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Users]
+      summary: Update my profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handle: { type: string }
+                bio: { type: string }
+                locale: { $ref: '#/components/schemas/Locale' }
+                interests:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/{handle}:
+    get:
+      tags: [Users]
+      summary: Get a user's public profile by handle
+      security: []  # public
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Public profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPublic' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /terms:
+    post:
+      tags: [Terms]
+      summary: Create a Terms template (LLM-backed)
+      description: Generates HTML + JSON from user inputs; stores HTML and renders PDF.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TermsInputs' }
+            examples:
+              example:
+                value:
+                  title: Standard Community Contract
+                  interestPercent: 5
+                  cadence: monthly
+                  graceDays: 7
+                  collateralText: Accepts small jewelry as collateral.
+                  remedies: Pause contributions; mediation.
+                  disclaimers: Non-legal template; educational use.
+                  locality: San Antonio, TX
+      responses:
+        '201':
+          description: Terms created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TermsTemplate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: LLM or validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /terms/{id}:
+    get:
+      tags: [Terms]
+      summary: Get a Terms template
+      parameters:
+        - $ref: '#/components/parameters/TermsId'
+      responses:
+        '200':
+          description: Terms template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TermsTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /terms/{id}/pdf:
+    get:
+      tags: [Terms]
+      summary: Download Terms as PDF
+      parameters:
+        - $ref: '#/components/parameters/TermsId'
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /terms/me:
+    get:
+      tags: [Terms]
+      summary: List my Terms templates
+      responses:
+        '200':
+          description: My terms
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TermsTemplate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /posts:
+    get:
+      tags: [Posts]
+      summary: List posts
+      security: []  # public
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Text search in title/description.
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/Category' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, closed] }
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Paginated posts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPosts' }
+    post:
+      tags: [Posts]
+      summary: Create a post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description, category]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                category: { $ref: '#/components/schemas/Category' }
+                goalGLM: { type: integer, minimum: 0 }
+                images:
+                  type: array
+                  items: { type: string, format: uri }
+                links:
+                  type: array
+                  items: { type: string, format: uri }
+                acceptContracts: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Post created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /posts/{id}:
+    get:
+      tags: [Posts]
+      summary: Get a post
+      security: []  # public
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: Post detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Posts]
+      summary: Update a post (owner)
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string }
+                category: { $ref: '#/components/schemas/Category' }
+                images:
+                  type: array
+                  items: { type: string, format: uri }
+                links:
+                  type: array
+                  items: { type: string, format: uri }
+                acceptContracts: { type: boolean }
+                status: { type: string, enum: [open, closed] }
+      responses:
+        '200':
+          description: Updated post
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Post' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Posts]
+      summary: Delete a post (owner or admin)
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '204':
+          description: Deleted
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /posts/{id}/pledges:
+    get:
+      tags: [Pledges]
+      summary: List pledges for a post
+      security: []  # public
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Paginated pledges
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPledges' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Pledges]
+      summary: Create a pledge (donation or contract)
+      description: >
+        - Donation moves GLM from pledger->post account.
+        - Contract requires `termsId` and the post must have `acceptContracts=true`. On violation returns 409.
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PledgeCreate' }
+      responses:
+        '201':
+          description: Pledge created
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pledge' }
+        '400': { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Conflict (e.g., contract pledge not allowed or insufficient balance)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Unprocessable (e.g., termsId not owned by pledger)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /pledges/{pledgeId}:
+    get:
+      tags: [Pledges]
+      summary: Get pledge by id
+      parameters:
+        - $ref: '#/components/parameters/PledgeId'
+      responses:
+        '200':
+          description: Pledge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pledge' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /wallet:
+    get:
+      tags: [Wallet]
+      summary: Get my wallet
+      responses:
+        '200':
+          description: Wallet account and balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account: { $ref: '#/components/schemas/Account' }
+
+  /wallet/transfer:
+    post:
+      tags: [Wallet]
+      summary: Internal GLM transfer (admin/dev tool)
+      description: Admin or dev tool for internal transfers between accounts.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromAccountId, toAccountId, amountGLM, note]
+              properties:
+                fromAccountId: { type: string }
+                toAccountId: { type: string }
+                amountGLM: { type: integer, minimum: 1 }
+                note: { type: string }
+      responses:
+        '201':
+          description: Transfer ledger entries created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/LedgerEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /wallet/transactions:
+    get:
+      tags: [Ledger]
+      summary: Get my ledger entries
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Ledger entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/LedgerEntry' }
+                  nextCursor: { type: string, nullable: true }
+
+  /wallet/repayments:
+    post:
+      tags: [Wallet]
+      summary: (Sim) Create a repayment transfer (post owner -> sponsor)
+      description: Demo-only repayment to settle part of a contract pledge obligation.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toUserId, amountGLM, note]
+              properties:
+                toUserId: { type: string }
+                amountGLM: { type: integer, minimum: 1 }
+                note: { type: string }
+      responses:
+        '201':
+          description: Repayment ledger entries created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/LedgerEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /circles:
+    get:
+      tags: [Circles]
+      summary: List my sponsor circles
+      responses:
+        '200':
+          description: Circles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Circle' }
+    post:
+      tags: [Circles]
+      summary: Create a sponsor circle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          description: Circle created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Circle' }
+
+  /circles/{id}/invite:
+    post:
+      tags: [Circles]
+      summary: Invite a user (by handle) to a circle
+      parameters:
+        - $ref: '#/components/parameters/CircleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handle]
+              properties:
+                handle: { type: string }
+      responses:
+        '202':
+          description: Invitation queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invitedHandle: { type: string }
+
+  /posts/{id}/comments:
+    get:
+      tags: [Comments]
+      summary: List comments for a post
+      security: []  # public
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Comment' }
+                  nextCursor: { type: string, nullable: true }
+    post:
+      tags: [Comments]
+      summary: Add a comment
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 2000 }
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /posts/{id}/mentions:
+    post:
+      tags: [Mentions]
+      summary: Mention users on a post
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MentionCreate' }
+      responses:
+        '202':
+          description: Mentions queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  targets:
+                    type: array
+                    items: { type: string }
+
+  /uploads/sign:
+    post:
+      tags: [Posts]
+      summary: Get signed params for Cloudinary upload
+      description: Returns signed upload parameters for client-side image uploads to Cloudinary.
+      responses:
+        '200':
+          description: Signed payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp: { type: integer }
+                  signature: { type: string }
+                  cloudName: { type: string }
+                  apiKey: { type: string }
+                additionalProperties: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /reports:
+    post:
+      tags: [Reports]
+      summary: Report content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportCreate' }
+      responses:
+        '202':
+          description: Report received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+
+  /admin/reports:
+    get:
+      tags: [Admin]
+      summary: List reports (admin)
+      responses:
+        '200':
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    reporterId: { type: string }
+                    targetType: { type: string, enum: [post, comment, user] }
+                    targetId: { type: string }
+                    reason: { type: string }
+                    status: { type: string, enum: [pending, reviewed, dismissed] }
+                    createdAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/users/{handle}/verify-sponsor:
+    post:
+      tags: [Admin]
+      summary: Toggle verified sponsor badge for a user (admin)
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPublic' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/content/{type}/{id}:
+    delete:
+      tags: [Admin]
+      summary: Remove abusive content by type and id (admin)
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema: { type: string, enum: [post, comment] }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: Deleted
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /ai/contracts/generate:
+    post:
+      tags: [AI (internal)]
+      summary: INTERNAL — Call LLM to generate contract HTML/JSON (with model fallback)
+      description: Server-only endpoint; not exposed to browsers. Requires server token or admin role.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TermsInputs' }
+      responses:
+        '200':
+          description: Drafted content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  html: { type: string }
+                  json: { $ref: '#/components/schemas/TermsInputs' }
+                  model: { type: string, example: "google/gemini-2.5-flash" }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
