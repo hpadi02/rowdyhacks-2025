@@ -1,0 +1,926 @@
+# GoLoanMe - Cursor Rules & Project Context
+
+## Project Overview
+**GoLoanMe** is a community micro-funding platform that helps underserved communities (students, local orgs, small nonprofits) raise and coordinate small funds with trust and clarity. This is a **24-hour hackathon project** for a **4-person team** using **free-tier services only**.
+
+**CRITICAL: This is a simulated ledger system with fake currency (GLM credits) for demo purposes only. NO real money rails, NO actual financial transactions.**
+
+---
+
+## Core Constraints & Principles
+- **24-hour hackathon timeline** - scope must be tight, achievable, and demo-ready
+- **Team of 4** - clear ownership, parallel workstreams
+- **Free tiers only** - all services must have viable free plans
+- **API-first architecture** - clean contracts, testable endpoints
+- **KISS/DRY principles** - keep it simple, don't repeat yourself
+- **NO scope creep** - stick to the cut line strictly
+- **Simulated currency only** - GLM credits, no real money
+- **Bilingual** - English + Spanish (i18n via next-intl)
+
+---
+
+## Tech Stack (Non-Negotiable)
+
+### Frontend
+- **Framework:** Next.js 14+ (App Router)
+- **UI:** React, Tailwind CSS
+- **i18n:** next-intl for English/Spanish
+- **Hosting:** Vercel (Hobby plan)
+
+### Backend
+- **Runtime:** Next.js Route Handlers (serverless)
+- **ORM:** Prisma
+- **Database:** Neon Postgres (Free tier) OR MongoDB Atlas M0 - PICK ONE
+- **Validation:** Zod schemas
+
+### Authentication
+- **Provider:** Auth0
+- **Methods:** Universal Login with Database (email/password) + Google Social
+- **Token:** JWT validation on all protected endpoints
+
+### AI/LLM
+- **Provider:** OpenRouter
+- **Primary Model:** google/gemini-2.5-flash
+- **Fallback:** Secondary lightweight model on OpenRouter (same API)
+- **Use Case:** Generate contract templates from user inputs
+- **Key Management:** Single shared team key in env vars
+
+### Storage
+- **Images/PDFs:** Supabase Storage (Free) OR Cloudinary (Free) - PICK ONE
+- **PDF Generation:** Server-side HTML→PDF (puppeteer or similar)
+
+### Testing
+- **Unit:** Vitest
+- **E2E:** Playwright (smoke tests only)
+
+### Observability
+- **Logs:** Console + Vercel logs (keep simple for demo)
+
+---
+
+## Environment Variables Required
+```bash
+# Auth0
+AUTH0_DOMAIN=
+AUTH0_CLIENT_ID=
+AUTH0_CLIENT_SECRET=
+AUTH0_AUDIENCE=
+
+# OpenRouter
+OPENROUTER_API_KEY=
+
+# Database (Neon or Atlas)
+DATABASE_URL=
+
+# Base URL
+NEXT_PUBLIC_BASE_URL=
+
+# Storage (Supabase OR Cloudinary)
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+# OR
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+```
+
+---
+
+## Data Model (Core Entities)
+
+### User
+- id (PK)
+- auth0_sub (unique, indexed)
+- email (unique)
+- handle (unique, username)
+- bio (text)
+- avatarUrl (string)
+- locale (enum: 'en' | 'es', default: 'en')
+- interests (array of strings)
+- createdAt, updatedAt
+
+### SponsorProfile
+- userId (PK/FK → User)
+- verified (boolean, default: false)
+- rating (float, nullable)
+
+### TermsTemplate
+- id (PK)
+- userId (FK → User)
+- title (string)
+- inputs_json (JSONB - stores form inputs)
+- llm_version (string - model used)
+- html (text - rendered HTML)
+- pdfUrl (string)
+- createdAt
+
+### Post
+- id (PK)
+- ownerId (FK → User)
+- title (string, required)
+- description (text, required)
+- category (enum: 'Medical' | 'Funeral' | 'For fun' | 'Vet bills' | 'Education' | 'Community Projects' | 'Other')
+- images (array of strings - URLs)
+- links (array of strings - URLs)
+- acceptContracts (boolean, default: false - opts into contract pledges)
+- status (enum: 'open' | 'closed', default: 'open')
+- goal (integer, nullable - target GLM amount)
+- createdAt, updatedAt
+
+### Pledge
+- id (PK)
+- postId (FK → Post)
+- pledgerId (FK → User)
+- type (enum: 'donation' | 'contract')
+- amountGLM (integer, required, minimum: 1)
+- termsId (FK → TermsTemplate, nullable - required if type='contract')
+- note (text, nullable)
+- createdAt
+
+### Account
+- id (PK)
+- ownerType (enum: 'user' | 'post')
+- ownerId (integer - polymorphic)
+- balanceGLM (integer, default: 0)
+
+### LedgerEntry (Immutable)
+- id (PK)
+- accountId (FK → Account)
+- type (enum: 'credit' | 'debit')
+- amountGLM (integer, required)
+- refType (enum: 'pledge' | 'transfer' | 'repayment')
+- refId (integer - reference to Pledge/Transfer/etc)
+- createdAt
+
+### Circle (Sponsor Circles)
+- id (PK)
+- ownerId (FK → User)
+- name (string)
+- members (array of user IDs)
+- createdAt
+
+### Mention
+- id (PK)
+- postId (FK → Post)
+- authorId (FK → User)
+- targetUserId (FK → User)
+- createdAt
+
+### Comment
+- id (PK)
+- postId (FK → Post)
+- authorId (FK → User)
+- text (text, required)
+- createdAt
+
+### Report
+- id (PK)
+- reporterId (FK → User)
+- targetType (enum: 'post' | 'comment' | 'user')
+- targetId (integer)
+- reason (text)
+- status (enum: 'pending' | 'reviewed' | 'dismissed')
+- createdAt
+
+### AuditLog
+- id (PK)
+- actorId (FK → User, nullable)
+- action (string - e.g., 'user.created', 'post.closed')
+- payload (JSONB)
+- createdAt
+
+---
+
+## API Endpoints (RESTful)
+
+### Authentication
+All protected endpoints require `Authorization: Bearer <JWT>` header.
+
+### User & Profile
+- `GET /api/me` - Get current user profile (protected)
+- `PATCH /api/me` - Update current user profile (protected)
+- `GET /api/users/:handle` - Get public user profile (public)
+
+### Terms/Contracts
+- `POST /api/terms` - Create terms template via LLM (protected)
+- `GET /api/terms/:id` - Get terms (owner or public) (protected)
+- `GET /api/terms/me` - List my terms templates (protected)
+
+### Posts
+- `GET /api/posts` - List posts with filters (q, category, status) (public)
+- `POST /api/posts` - Create post (protected)
+- `GET /api/posts/:id` - Get post detail (public)
+- `PATCH /api/posts/:id` - Update/close post (protected, owner only)
+- `DELETE /api/posts/:id` - Delete post (protected, owner or admin)
+
+### Pledges
+- `GET /api/posts/:id/pledges` - List pledges for a post (public)
+- `POST /api/posts/:id/pledges` - Create pledge (donation or contract) (protected)
+
+### Wallet & Ledger
+- `GET /api/wallet` - Get my wallet balance (protected)
+- `GET /api/ledger` - Get my ledger entries (protected)
+- `POST /api/wallet/transfer` - Internal transfer (admin/dev tool) (protected, admin)
+
+### Circles
+- `GET /api/circles` - List my circles (protected)
+- `POST /api/circles` - Create circle (protected)
+- `POST /api/circles/:id/invite` - Invite user to circle (protected)
+
+### Comments & Mentions
+- `GET /api/posts/:id/comments` - List comments (public)
+- `POST /api/posts/:id/comments` - Add comment (protected)
+- `POST /api/posts/:id/mentions` - Create @mention (protected)
+
+### Reports & Moderation
+- `POST /api/reports` - Report content (protected)
+- `GET /api/admin/reports` - List reports (protected, admin)
+- `POST /api/admin/users/:id/verify` - Toggle verified sponsor (protected, admin)
+- `DELETE /api/admin/content/:type/:id` - Remove content (protected, admin)
+
+### AI/LLM (Server-only)
+- `POST /api/ai/contracts/generate` - Generate contract from inputs (internal)
+  - Calls OpenRouter → Gemini
+  - On 429/timeout, fallback to second model
+  - Returns HTML + JSON schema
+  - Server renders PDF and stores in object storage
+
+---
+
+## LLM Integration Details
+
+### Contract Generation Flow
+1. User fills guided form (interest %, cadence, grace period, collateral text, remedies, disclaimers)
+2. Server receives form data via `POST /api/terms`
+3. Server calls OpenRouter with Gemini model
+4. LLM returns structured JSON + HTML
+5. Server generates PDF from HTML
+6. Server stores PDF in object storage
+7. Server saves TermsTemplate record with all outputs
+
+### System Prompt (for Gemini)
+```
+You are a contract template drafter for community micro-funding platforms. 
+
+Your task is to generate clear, plain-language contract templates based on user inputs. 
+
+CRITICAL RULES:
+- Output strict JSON with HTML sections
+- Use a unified schema with these sections: Parties, Offer, Consideration, Amount, Repayment/Expectations, Grace Period, Remedies, Collateral (free text), Disclaimers
+- NO legal advice - this is educational only
+- Plain language, accessible to non-lawyers
+- Include disclaimer that this is not legally binding
+
+OUTPUT FORMAT:
+{
+  "schema": { ... structured data ... },
+  "html": "<div>...</div>"
+}
+```
+
+### Model Configuration
+- **Primary:** `google/gemini-2.5-flash`
+- **Fallback:** (Choose another fast, free-tier model on OpenRouter)
+- **Max tokens:** 4096
+- **Temperature:** 0.3 (consistent outputs)
+
+### Error Handling
+- Rate limit (429) → retry with fallback model
+- Timeout → retry once, then show error to user with option to retry
+- Invalid output → log error, show generic error to user
+- Cache last successful template per user for quick retry
+
+---
+
+## Ledger Logic (GLM Credits)
+
+### Account Structure
+- Every **User** has one **Account** (ownerType='user')
+- Every **Post** has one **Account** (ownerType='post')
+- Balance calculated from immutable **LedgerEntry** rows
+
+### Flow: Donation
+1. User clicks "Donate X GLM" on a post
+2. System validates user has sufficient balance
+3. Create **Pledge** record (type='donation')
+4. Create **LedgerEntry** - DEBIT user account (-X GLM)
+5. Create **LedgerEntry** - CREDIT post account (+X GLM)
+6. Transaction is atomic (both or neither)
+
+### Flow: Contract Pledge
+1. User selects "Contract Pledge" and picks their TermsTemplate
+2. Post must have `acceptContracts=true` (pre-opted-in clickwrap)
+3. User enters amount X GLM
+4. System validates user has sufficient balance
+5. Create **Pledge** record (type='contract', termsId=...)
+6. Create **LedgerEntry** - DEBIT user account (-X GLM)
+7. Create **LedgerEntry** - CREDIT post account (+X GLM)
+8. Create **Obligation** record (display-only; post owner "owes" sponsor per terms)
+
+### Flow: Repayment (Simulated for Demo)
+1. Post owner clicks "Repay" on an obligation
+2. System validates post account or user account has sufficient balance
+3. Create **LedgerEntry** - DEBIT post/user account (-Y GLM)
+4. Create **LedgerEntry** - CREDIT sponsor account (+Y GLM)
+5. Update **Obligation** status
+
+### Balance Calculation
+```sql
+SELECT SUM(CASE WHEN type='credit' THEN amountGLM ELSE -amountGLM END) as balance
+FROM LedgerEntry
+WHERE accountId = ?
+```
+
+---
+
+## Collaboration Features
+
+### @Mentions
+- In post descriptions and comments
+- Format: `@username`
+- Parser extracts mentions on save
+- Creates **Mention** records
+- Triggers in-app notification (no email for MVP)
+
+### Sponsor Circles
+- User creates a Circle (name + description)
+- Invites other users by handle
+- Members can be tagged collectively on posts
+- "Verified" badge shown for SponsorProfiles with `verified=true`
+- Admin manually toggles `verified` flag (demo: user uploads "ID", admin reviews)
+
+### Comments & Discussion
+- Threaded comments on each post
+- Real-time updates not required for MVP (page refresh ok)
+- Comments can include @mentions
+
+---
+
+## Security & Auth Implementation
+
+### Auth0 Setup
+1. Create Auth0 tenant
+2. Enable Database connection (email/password)
+3. Enable Google Social connection
+4. Configure Universal Login
+5. Set callback URLs to `${NEXT_PUBLIC_BASE_URL}/api/auth/callback`
+6. Create API in Auth0 for your backend (audience)
+
+### JWT Validation (Middleware)
+```typescript
+import { jwtVerify } from 'jose';
+
+export async function validateToken(token: string) {
+  const jwks = await fetch(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`);
+  const verified = await jwtVerify(token, jwks, {
+    audience: AUTH0_AUDIENCE,
+    issuer: `https://${AUTH0_DOMAIN}/`
+  });
+  return verified.payload;
+}
+```
+
+### Authorization Levels
+- **Public:** Can view posts, profiles, pledges
+- **Authenticated:** Can create posts, pledge, comment, mention
+- **Owner:** Can edit/close own posts, view own wallet/ledger
+- **Admin:** Can verify sponsors, remove content, view reports
+
+### Rate Limiting
+- Use Vercel Edge Middleware
+- Limit: 100 requests per minute per IP
+- Stricter for AI endpoints: 5 requests per minute per user
+
+### Content Security
+- **Image uploads:** Max 5MB, types: jpg, png, gif, webp
+- **XSS prevention:** Sanitize all user input before render
+- **CSRF:** Use Next.js built-in CSRF protection
+- **SQL injection:** Parameterized queries via Prisma (ORM prevents this)
+
+### Legal Compliance
+- Banner on every page: "Simulated currency. Not financial or legal advice. Not a money transmitter."
+- Terms of Service: "Educational use only. No real obligations."
+
+---
+
+## Internationalization (i18n)
+
+### Setup (next-intl)
+1. Install: `npm install next-intl`
+2. Create `/i18n/messages/en.json` and `/i18n/messages/es.json`
+3. Configure in `next.config.js`
+4. Use `useTranslations()` hook in components
+
+### Locale Switching
+- User selects locale in profile settings
+- Stored in User.locale field
+- Cookie fallback for logged-out users
+- Toggle UI in header (flag icons or "EN/ES" text)
+
+### Translation Coverage
+**Core strings to translate:**
+- Navigation (Home, Explore, Create, Wallet, Profile)
+- Post categories (Medical, Funeral, For fun, Vet bills, Education, Community Projects, Other)
+- Actions (Donate, Contract Pledge, Comment, Mention, Close, Report)
+- Form labels (Title, Description, Amount, Category, Accept Contracts)
+- Status messages (Success, Error, Loading)
+- Legal disclaimers
+
+**NOT translated:**
+- User-generated content (posts, comments)
+- Contract templates (LLM generates in English only for MVP)
+
+---
+
+## Folder Structure
+
+```
+/rowdyhacks-2025/
+├── .cursorrules                 # This file
+├── .env.local                   # Environment variables (gitignored)
+├── .gitignore
+├── package.json
+├── tsconfig.json
+├── next.config.js
+├── tailwind.config.js
+├── prisma/
+│   ├── schema.prisma            # Database schema
+│   ├── migrations/              # Auto-generated migrations
+│   └── seed.ts                  # Demo data seeding script
+├── public/
+│   ├── images/
+│   └── locales/
+├── src/
+│   ├── app/                     # Next.js App Router
+│   │   ├── layout.tsx           # Root layout
+│   │   ├── page.tsx             # Landing page
+│   │   ├── api/                 # API routes
+│   │   │   ├── auth/
+│   │   │   ├── me/
+│   │   │   ├── posts/
+│   │   │   ├── pledges/
+│   │   │   ├── wallet/
+│   │   │   ├── terms/
+│   │   │   ├── circles/
+│   │   │   ├── reports/
+│   │   │   ├── admin/
+│   │   │   └── ai/
+│   │   ├── explore/             # Browse posts
+│   │   ├── posts/
+│   │   │   ├── [id]/            # Post detail
+│   │   │   └── new/             # Create post
+│   │   ├── wallet/              # User wallet & transactions
+│   │   ├── terms/               # Terms wizard & management
+│   │   ├── circles/             # Sponsor circles
+│   │   ├── profile/
+│   │   │   └── [handle]/        # User profile
+│   │   └── admin/               # Admin panel
+│   ├── components/
+│   │   ├── ui/                  # Reusable UI components
+│   │   ├── forms/               # Form components
+│   │   ├── layout/              # Layout components
+│   │   └── features/            # Feature-specific components
+│   ├── lib/
+│   │   ├── auth.ts              # Auth0 helpers
+│   │   ├── db.ts                # Prisma client
+│   │   ├── llm.ts               # OpenRouter integration
+│   │   ├── pdf.ts               # PDF generation
+│   │   ├── storage.ts           # Image/PDF upload
+│   │   ├── ledger.ts            # Ledger logic
+│   │   └── validations.ts       # Zod schemas
+│   ├── i18n/
+│   │   ├── messages/
+│   │   │   ├── en.json
+│   │   │   └── es.json
+│   │   └── config.ts
+│   ├── types/
+│   │   └── index.ts             # TypeScript types
+│   └── styles/
+│       └── globals.css
+├── tests/
+│   ├── unit/
+│   └── e2e/
+└── README.md
+```
+
+---
+
+## Coding Standards & Conventions
+
+### General
+- **TypeScript strict mode** - no `any` types
+- **ESLint + Prettier** - enforce on commit
+- **Conventional Commits** - `feat:`, `fix:`, `docs:`, etc.
+- **Small PRs** - max 150 lines of code changed
+- **Code reviews** - at least one approval required
+
+### React/Next.js
+- **Functional components only** - no class components
+- **Server Components by default** - use Client Components only when needed
+- **Async Server Components** - fetch data directly in components
+- **Server Actions minimal** - prefer Route Handlers for complex logic
+- **Tailwind classes** - no inline styles or CSS modules
+
+### File Naming
+- **Components:** PascalCase - `PostCard.tsx`
+- **Utilities:** camelCase - `formatCurrency.ts`
+- **API routes:** lowercase - `route.ts`
+- **Pages:** lowercase - `page.tsx`
+
+### Component Structure
+```tsx
+// 1. Imports (grouped: React, Next.js, third-party, local)
+import { useState } from 'react';
+import Link from 'next/link';
+import { formatCurrency } from '@/lib/utils';
+
+// 2. Types/Interfaces
+interface PostCardProps {
+  post: Post;
+  showActions?: boolean;
+}
+
+// 3. Component
+export function PostCard({ post, showActions = true }: PostCardProps) {
+  // 4. Hooks
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // 5. Handlers
+  const handleClick = () => { ... };
+  
+  // 6. Render
+  return ( ... );
+}
+```
+
+### API Route Structure
+```typescript
+// app/api/posts/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { validateToken } from '@/lib/auth';
+import { db } from '@/lib/db';
+
+const createPostSchema = z.object({
+  title: z.string().min(3).max(100),
+  description: z.string().min(10),
+  category: z.enum(['Medical', 'Funeral', 'For fun', 'Vet bills', 'Education', 'Community Projects', 'Other']),
+  acceptContracts: z.boolean().default(false)
+});
+
+export async function POST(req: NextRequest) {
+  try {
+    // 1. Auth
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await validateToken(token);
+    
+    // 2. Validation
+    const body = await req.json();
+    const data = createPostSchema.parse(body);
+    
+    // 3. Business logic
+    const post = await db.post.create({
+      data: { ...data, ownerId: user.id }
+    });
+    
+    // 4. Response
+    return NextResponse.json(post, { status: 201 });
+    
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.errors }, { status: 400 });
+    }
+    console.error(error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+```
+
+### Database Queries
+- **Always use Prisma** - no raw SQL unless absolutely necessary
+- **Use transactions** for multi-table updates (especially ledger)
+- **Select only needed fields** - avoid `select *`
+- **Add indexes** for frequently queried fields
+
+### Error Handling
+- **Try-catch all async operations**
+- **Log errors with context** - include user ID, timestamp, action
+- **User-friendly messages** - never expose stack traces to users
+- **Fallbacks for external services** - LLM, storage, etc.
+
+---
+
+## Cut Line (Scope Control)
+
+### ✅ IN SCOPE (MVP)
+- User auth (email/password + Google via Auth0)
+- Create/view/close posts with categories
+- Donations (GLM credits)
+- Contract pledges with clickwrap acceptance (post-level opt-in)
+- LLM-generated contract templates (Gemini via OpenRouter)
+- PDF generation and storage
+- @Mentions in posts/comments
+- Sponsor Circles (basic list, verified badge)
+- Ledger with immutable entries
+- Wallet balance view
+- Comments on posts
+- In-app notifications for mentions
+- i18n (English/Spanish)
+- Admin: remove content, toggle verified, view reports
+- Seed script with demo data
+- Responsive UI (mobile-friendly)
+
+### ❌ OUT OF SCOPE (Do NOT Build)
+- Real money payments/payouts
+- ACH, Stripe, PayPal integration
+- KYC/identity verification (except demo upload for verified badge)
+- Legal enforceability of contracts
+- MFA/SMS authentication
+- Native mobile apps (iOS/Android)
+- Advanced search/indexing (Algolia, Elasticsearch)
+- AI toxicity detection/advanced moderation
+- Real-time updates (WebSockets, SSE)
+- Complex analytics dashboard
+- Email notifications (in-app only)
+- Push notifications
+- Social sharing (Open Graph ok, but no social login beyond Google)
+- Multi-currency support
+- Recurring donations/subscriptions
+- Geolocation features
+- Video uploads
+- Live chat support
+- Gamification (badges, leaderboards beyond verified flag)
+
+---
+
+## Demo Script (2-3 minutes)
+
+**Setup:** Have 3 test accounts ready (Carmen, Sam, Sofia)
+
+**Flow:**
+1. **[Sofia]** Log in → Go to "My Terms" → Fill form (3% interest, monthly repayment, 7-day grace, "Car title" as collateral) → Submit → Show AI-generated preview → Save → Download PDF
+2. **[Carmen]** Log in → Create Post → Title: "Help with Medical Bills", Category: Medical, Description: "Need $500 for surgery", Upload image, Toggle ON "Accept contract pledges" → Mention @Sam → Publish
+3. **[Sam]** Log in → View Carmen's post → Click "Donate" → Enter 100 GLM → Confirm → Show success
+4. **[Sofia]** View Carmen's post → Click "Contract Pledge" → Select "My Terms" → Enter 400 GLM → Confirm → Show success
+5. **[Carmen]** View post detail → Show progress bar (500/500 funded) → Show ledger (2 entries) → Show pledge breakdown (1 donation, 1 contract)
+6. **[Carmen]** Click locale toggle → Switch to Español → Show UI in Spanish
+7. **[Sofia]** Go to profile → Show "Verified Sponsor" badge
+8. **[Admin]** Go to admin panel → Show Carmen's post in content list → Show Sofia in users list with verified toggle
+
+**Talking Points:**
+- "Simulated currency for underserved communities to coordinate funds transparently"
+- "AI-generated contract templates in plain language"
+- "Two contribution types: donations (no strings) and contract pledges (with terms)"
+- "Clickwrap acceptance at post level—creator opts in, pledgers attach their standing terms"
+- "Immutable ledger for full transparency"
+- "Sponsor circles and verified badges for trusted lenders"
+- "Bilingual (English/Spanish) for accessibility"
+
+---
+
+## Team Ownership & Timeline
+
+**Team of 4:** FE1, FE2, BE1, BE2
+
+### T+0–2h (All)
+- [ ] Repo init, Next.js scaffold
+- [ ] Environment setup (Auth0, OpenRouter, Neon/Atlas, Supabase/Cloudinary)
+- [ ] Prisma schema + migrations
+- [ ] Auth0 tenant + connections (DB + Google)
+- [ ] Vercel project + env vars
+
+### T+2–6h
+**FE1:**
+- [ ] Layout, Header, Footer
+- [ ] Landing page (hero, how it works, category browse)
+- [ ] Explore page (filters, category, search)
+- [ ] i18n scaffold (next-intl setup, EN/ES files)
+
+**FE2:**
+- [ ] Post Create form
+- [ ] Post Detail page (donations/contract tabs)
+- [ ] Comments component
+- [ ] @Mentions parser & UI
+
+**BE1:**
+- [ ] Auth middleware (JWT validation)
+- [ ] User CRUD endpoints
+- [ ] Post CRUD endpoints
+- [ ] Pledge endpoints
+- [ ] Ledger models + queries
+
+**BE2:**
+- [ ] OpenRouter integration (Gemini + fallback)
+- [ ] Terms generation endpoint
+- [ ] HTML → PDF service
+- [ ] Storage service (upload images/PDFs)
+
+### T+6–12h
+**FE1:**
+- [ ] Wallet page (balance, transactions)
+- [ ] Profile page (public view)
+- [ ] Sponsor Circles page (list, create, invite)
+
+**FE2:**
+- [ ] My Terms wizard (multi-step form)
+- [ ] Terms preview & PDF download
+- [ ] Spanish translations (all strings)
+
+**BE1:**
+- [ ] Admin endpoints (reports, remove content, verify)
+- [ ] Circle CRUD endpoints
+- [ ] Mention & notification endpoints
+
+**BE2:**
+- [ ] Seed script (users, posts, pledges, GLM balances)
+- [ ] Demo data (categories, images, Spanish posts)
+
+### T+12–20h
+**All:**
+- [ ] Auth0 integration hardening (user creation on first login)
+- [ ] Edge rate limiting
+- [ ] Basic profanity filter for posts/comments
+- [ ] Empty state & error UX pass
+- [ ] Mobile responsive adjustments
+- [ ] i18n QA (all pages in both languages)
+
+### T+20–24h
+**All:**
+- [ ] Playwright smoke tests (login, create post, pledge, wallet)
+- [ ] Demo script practice run
+- [ ] Record demo video (backup if live demo fails)
+- [ ] Deploy to Vercel production
+- [ ] Final QA & bug bash
+
+---
+
+## Risks & Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| LLM rate limits | High | High | Model fallback, cache last output, allow manual edit |
+| Free-tier DB quota | Medium | Medium | Compress images client-side, limit rows, nightly purge |
+| Auth0 setup complexity | Medium | High | Start early, use quickstart guides, test login flow first |
+| PDF generation on Vercel | Medium | Medium | Use puppeteer-core with chrome-aws-lambda, test early |
+| Scope creep | High | Critical | Strict cut line enforcement, daily standup to re-align |
+| Merge conflicts | Medium | Medium | Small PRs, clear file ownership, communicate before big changes |
+| Demo environment failure | Low | High | Deploy early, have backup video, test on multiple devices |
+
+---
+
+## Quality Checklist (Before Demo)
+
+### Functionality
+- [ ] User can sign up/login with email and Google
+- [ ] User can create post with all fields (title, desc, images, category, acceptContracts toggle)
+- [ ] User can donate GLM to a post
+- [ ] User can create Terms via LLM wizard
+- [ ] User can contract-pledge with Terms to a post that accepts contracts
+- [ ] Post shows progress bar and pledge breakdown
+- [ ] Wallet shows correct balance
+- [ ] Ledger shows all transactions
+- [ ] @Mentions create notifications
+- [ ] User can create Sponsor Circle
+- [ ] Verified badge shows for verified sponsors
+- [ ] Locale toggle switches UI between EN/ES
+- [ ] Admin can remove content and toggle verified
+- [ ] PDF downloads correctly
+
+### UI/UX
+- [ ] Responsive on mobile (375px) and desktop (1920px)
+- [ ] Loading states for all async actions
+- [ ] Error messages are user-friendly
+- [ ] Empty states for lists (no posts, no pledges, etc.)
+- [ ] Forms have validation errors inline
+- [ ] Buttons have hover/active states
+- [ ] Images have fallbacks if load fails
+- [ ] Legal disclaimer visible on all pages
+
+### Security
+- [ ] All protected endpoints validate JWT
+- [ ] Image uploads restricted by type/size
+- [ ] User input sanitized before render
+- [ ] Rate limiting active on API routes
+- [ ] No sensitive data in client logs
+- [ ] CORS configured correctly
+
+### Performance
+- [ ] Initial page load < 3s
+- [ ] Images optimized (Next.js Image component)
+- [ ] No unnecessary re-renders
+- [ ] Ledger queries use indexes
+- [ ] PDF generation < 5s
+
+---
+
+## Quick Reference Links
+
+- **Auth0 Docs:** https://auth0.com/docs
+- **OpenRouter Docs:** https://openrouter.ai/docs
+- **Vercel Docs:** https://vercel.com/docs
+- **Neon Docs:** https://neon.tech/docs
+- **Supabase Docs:** https://supabase.com/docs
+- **next-intl Docs:** https://next-intl-docs.vercel.app
+- **Prisma Docs:** https://www.prisma.io/docs
+- **Tailwind Docs:** https://tailwindcss.com/docs
+
+---
+
+## Common Pitfalls to Avoid
+
+1. **Don't build real financial logic** - this is simulated only
+2. **Don't add features not in the cut line** - scope creep kills hackathon projects
+3. **Don't skip Auth0 setup** - it's critical and can be tricky
+4. **Don't hardcode strings** - use i18n from the start
+5. **Don't forget ledger atomicity** - use transactions for multi-table updates
+6. **Don't expose secrets** - keep env vars out of client code
+7. **Don't test in production** - deploy early, test thoroughly
+8. **Don't skip the demo script** - practice makes perfect
+9. **Don't ignore mobile** - many users will view on phones
+10. **Don't panic** - you have 24 hours and a solid plan
+
+---
+
+## Development Commands
+
+```bash
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+
+# Generate Prisma client
+npx prisma generate
+
+# Run migrations
+npx prisma migrate dev
+
+# Seed database
+npx prisma db seed
+
+# Run linter
+npm run lint
+
+# Run type check
+npm run type-check
+
+# Build for production
+npm run build
+
+# Run production server
+npm start
+
+# Run tests
+npm test
+
+# Run E2E tests
+npm run test:e2e
+```
+
+---
+
+## Success Criteria
+
+**Demo must show:**
+1. ✅ User creates Terms via AI (with PDF download)
+2. ✅ User creates post with category and contract acceptance
+3. ✅ Another user makes donation
+4. ✅ Sponsor makes contract pledge
+5. ✅ Post shows progress and ledger
+6. ✅ UI works in both English and Spanish
+7. ✅ Verified badge visible on sponsor profile
+
+**Bonus points:**
+- Beautiful, modern UI
+- Smooth animations/transitions
+- Mobile-responsive demo
+- Live Q&A handling
+
+---
+
+## Final Notes
+
+**This is a hackathon MVP.** Prioritize:
+1. Core flows working end-to-end
+2. Demo-ready features
+3. Visual polish
+4. Bilingual support
+
+**Do NOT prioritize:**
+- Perfect code quality (good enough is ok)
+- Comprehensive test coverage (smoke tests only)
+- Advanced error handling (basic is fine)
+- Production-grade security (demo-safe is enough)
+
+**When in doubt:**
+- Refer back to this file
+- Ask yourself: "Is this in the cut line?"
+- Communicate with the team
+- Keep building
+
+---
+
+**LET'S BUILD SOMETHING AMAZING IN 24 HOURS! 🚀**
+
