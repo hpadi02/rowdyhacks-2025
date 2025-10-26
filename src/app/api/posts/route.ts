@@ -1,63 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@auth0/nextjs-auth0';
-
-// Mock data for development
-const mockPosts = [
-  {
-    id: '1',
-    title: 'Medical Emergency Fund',
-    description: 'Need help with unexpected medical expenses for my father\'s surgery. Any support would be greatly appreciated.',
-    category: 'MEDICAL',
-    images: [],
-    links: [],
-    acceptContracts: true,
-    status: 'OPEN',
-    goal: 5000,
-    createdAt: '2025-01-25T00:00:00Z',
-    updatedAt: '2025-01-25T00:00:00Z',
-    owner: {
-      id: 'user1',
-      handle: 'demo_user',
-      avatarUrl: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=DU',
-      verified: true,
-    },
-    pledges: [],
-    _count: {
-      pledges: 0,
-      comments: 0,
-    },
-    totalRaised: 0,
-    pledgeCount: 0,
-    commentCount: 0,
-  },
-  {
-    id: '2',
-    title: 'Education Fund for Coding Bootcamp',
-    description: 'Seeking support to attend a 6-month coding bootcamp to transition into tech career.',
-    category: 'EDUCATION',
-    images: [],
-    links: [],
-    acceptContracts: false,
-    status: 'OPEN',
-    goal: 8000,
-    createdAt: '2025-01-24T00:00:00Z',
-    updatedAt: '2025-01-24T00:00:00Z',
-    owner: {
-      id: 'user1',
-      handle: 'demo_user',
-      avatarUrl: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=DU',
-      verified: true,
-    },
-    pledges: [],
-    _count: {
-      pledges: 0,
-      comments: 0,
-    },
-    totalRaised: 0,
-    pledgeCount: 0,
-    commentCount: 0,
-  },
-];
+import { db as prisma } from '@/lib/db';
 
 // GET /api/posts - List posts with filters
 export async function GET(request: NextRequest) {
@@ -66,33 +9,105 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q');
     const category = searchParams.get('category');
     const status = searchParams.get('status');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
 
-    let filteredPosts = [...mockPosts];
+    const whereClause: any = {};
 
     // Apply filters
     if (q) {
-      filteredPosts = filteredPosts.filter(post => 
-        post.title.toLowerCase().includes(q.toLowerCase()) ||
-        post.description.toLowerCase().includes(q.toLowerCase())
-      );
+      whereClause.OR = [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } }
+      ];
     }
 
     if (category) {
-      filteredPosts = filteredPosts.filter(post => post.category === category);
+      whereClause.category = category;
     }
 
     if (status) {
-      filteredPosts = filteredPosts.filter(post => post.status === status);
+      whereClause.status = status;
     }
+
+    const [posts, total] = await Promise.all([
+      prisma.post.findMany({
+        where: whereClause,
+        include: {
+          owner: {
+            select: {
+              id: true,
+              handle: true,
+              avatarUrl: true,
+              verified: true,
+            }
+          },
+          pledges: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  handle: true,
+                  avatarUrl: true,
+                }
+              }
+            }
+          },
+          comments: true,
+          _count: {
+            select: {
+              pledges: true,
+              comments: true,
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.post.count({ where: whereClause }),
+    ]);
+
+    // Transform posts to match frontend expectations
+    const transformedPosts = posts.map(post => {
+      const totalRaised = post.pledges.reduce((sum, pledge) => sum + pledge.amountGLM, 0);
+      
+      return {
+        id: post.id,
+        title: post.title,
+        description: post.description,
+        category: post.category,
+        images: JSON.parse(post.images),
+        links: JSON.parse(post.links),
+        acceptContracts: post.acceptContracts,
+        status: post.status,
+        goal: post.goal,
+        createdAt: post.createdAt.toISOString(),
+        updatedAt: post.updatedAt.toISOString(),
+        owner: post.owner,
+        pledges: post.pledges.map(pledge => ({
+          id: pledge.id,
+          type: pledge.type,
+          amountGLM: pledge.amountGLM,
+          note: pledge.note,
+          createdAt: pledge.createdAt.toISOString(),
+          user: pledge.user,
+        })),
+        _count: post._count,
+        totalRaised,
+        pledgeCount: post._count.pledges,
+        commentCount: post._count.comments,
+      };
+    });
 
     return NextResponse.json({
       success: true,
-      data: filteredPosts,
+      data: transformedPosts,
       pagination: {
-        page: 1,
-        limit: 20,
-        total: filteredPosts.length,
-        pages: 1,
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
       },
     });
 
@@ -117,34 +132,70 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    
-    // Create new post
-    const newPost = {
-      id: `post${Date.now()}`,
-      ...body,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      owner: {
-        id: 'user1',
-        handle: 'demo_user',
-        avatarUrl: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=DU',
-        verified: true,
+    const userId = 'test-user-id'; // Mock user ID for now
+
+    const newPost = await prisma.post.create({
+      data: {
+        ownerId: userId,
+        title: body.title,
+        description: body.description,
+        category: body.category,
+        images: JSON.stringify(body.images || []),
+        links: JSON.stringify(body.links || []),
+        acceptContracts: body.acceptContracts || false,
+        status: 'OPEN',
+        goal: body.goal,
       },
+      include: {
+        owner: {
+          select: {
+            id: true,
+            handle: true,
+            avatarUrl: true,
+            verified: true,
+          }
+        },
+        _count: {
+          select: {
+            pledges: true,
+            comments: true,
+          }
+        }
+      }
+    });
+
+    // Create account for the post
+    await prisma.account.create({
+      data: {
+        ownerType: 'post',
+        ownerId: newPost.id,
+        balanceGLM: 0,
+      }
+    });
+
+    const transformedPost = {
+      id: newPost.id,
+      title: newPost.title,
+      description: newPost.description,
+      category: newPost.category,
+      images: JSON.parse(newPost.images),
+      links: JSON.parse(newPost.links),
+      acceptContracts: newPost.acceptContracts,
+      status: newPost.status,
+      goal: newPost.goal,
+      createdAt: newPost.createdAt.toISOString(),
+      updatedAt: newPost.updatedAt.toISOString(),
+      owner: newPost.owner,
       pledges: [],
-      _count: {
-        pledges: 0,
-        comments: 0,
-      },
+      _count: newPost._count,
       totalRaised: 0,
       pledgeCount: 0,
       commentCount: 0,
     };
 
-    mockPosts.push(newPost);
-
     return NextResponse.json({
       success: true,
-      data: newPost,
+      data: transformedPost,
     }, { status: 201 });
 
   } catch (error) {

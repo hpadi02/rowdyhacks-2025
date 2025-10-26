@@ -1,34 +1,33 @@
 // GoLoanMe Database Schema
-// Based on .cursorrules specifications
+// SQLite version for local development
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mongodb"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 // Core User Model
 model User {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  auth0Sub  String   @unique @map("auth0_sub")
+  id        String   @id @default(cuid())
+  auth0Sub  String   @unique
   email     String   @unique
   handle    String   @unique
   bio       String?
-  avatarUrl String?  @map("avatar_url")
-  locale    Locale   @default(EN)
-  interests String[]
+  avatarUrl String?
+  locale    String   @default("en")
+  interests String   @default("[]") // JSON string for SQLite
   verified  Boolean  @default(false)
   rating    Float?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   posts     Post[]
   pledges   Pledge[]
-  accounts  Account[]
   circles   Circle[]
   mentions  Mention[] @relation("MentionAuthor")
   targetMentions Mention[] @relation("MentionTarget")
@@ -36,228 +35,174 @@ model User {
   reports   Report[]
   auditLogs AuditLog[]
   termsTemplates TermsTemplate[]
+  sponsorProfile SponsorProfile?
 
   @@map("users")
 }
 
+// Sponsor Profile
+model SponsorProfile {
+  userId    String  @id
+  verified  Boolean @default(false)
+  rating    Float?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sponsor_profiles")
+}
+
+// Terms Template
+model TermsTemplate {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  inputsJson String   @map("inputs_json") // JSON string
+  llmVersion String? @map("llm_version")
+  html       String
+  pdfUrl     String?  @map("pdf_url")
+  createdAt  DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pledges Pledge[]
+
+  @@map("terms_templates")
+}
+
 // Post Model
 model Post {
-  id             String     @id @default(auto()) @map("_id") @db.ObjectId
-  ownerId        String     @map("owner_id") @db.ObjectId
-  title          String
-  description    String
-  category       Category
-  images         String[]
-  links          String[]
-  acceptContracts Boolean   @default(false) @map("accept_contracts")
-  status         PostStatus @default(OPEN)
-  goal           Int?
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
+  id              String   @id @default(cuid())
+  ownerId         String
+  title           String
+  description     String
+  category        String
+  images          String   @default("[]") // JSON string
+  links           String   @default("[]") // JSON string
+  acceptContracts Boolean @default(false)
+  status          String   @default("open")
+  goal            Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  // Relations
-  owner    User      @relation(fields: [ownerId], references: [id])
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   pledges  Pledge[]
-  mentions Mention[]
   comments Comment[]
-  accounts Account[]
+  mentions Mention[]
 
   @@map("posts")
 }
 
 // Pledge Model
 model Pledge {
-  id        String      @id @default(auto()) @map("_id") @db.ObjectId
-  postId    String      @map("post_id") @db.ObjectId
-  pledgerId String      @map("pledger_id") @db.ObjectId
-  type      PledgeType
-  amountGLM Int         @map("amount_glm")
-  termsId   String?     @map("terms_id") @db.ObjectId
+  id        String   @id @default(cuid())
+  postId    String
+  pledgerId String
+  type      String   // 'donation' or 'contract'
+  amountGLM Int
+  termsId   String?
   note      String?
-  createdAt DateTime    @default(now()) @map("created_at")
+  createdAt DateTime @default(now())
 
-  // Relations
-  post   Post        @relation(fields: [postId], references: [id])
-  pledger User       @relation(fields: [pledgerId], references: [id])
-  terms  TermsTemplate? @relation(fields: [termsId], references: [id])
+  post  Post  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [pledgerId], references: [id], onDelete: Cascade)
+  terms TermsTemplate? @relation(fields: [termsId], references: [id])
 
   @@map("pledges")
 }
 
-// Terms Template Model
-model TermsTemplate {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId     String   @map("user_id") @db.ObjectId
-  title      String
-  inputsJson Json     @map("inputs_json")
-  llmVersion String   @map("llm_version")
-  html       String
-  pdfUrl     String?  @map("pdf_url")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  // Relations
-  user   User     @relation(fields: [userId], references: [id])
-  pledges Pledge[]
-
-  @@map("terms_templates")
-}
-
-// Account Model (for GLM credits)
+// Account Model
 model Account {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  ownerType OwnerType @map("owner_type")
-  ownerId   String    @map("owner_id") @db.ObjectId
-  balanceGLM Int      @default(0) @map("balance_glm")
+  id        String @id @default(cuid())
+  ownerType String // 'user' or 'post'
+  ownerId   String
+  balanceGLM Int    @default(0)
 
-  // Relations
-  user User? @relation(fields: [ownerId], references: [id])
-  post Post? @relation(fields: [ownerId], references: [id])
   ledgerEntries LedgerEntry[]
 
   @@map("accounts")
 }
 
-// Ledger Entry Model (Immutable)
+// Ledger Entry Model
 model LedgerEntry {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  accountId String    @map("account_id") @db.ObjectId
-  type      EntryType
-  amountGLM Int       @map("amount_glm")
-  refType   RefType   @map("ref_type")
-  refId     String    @map("ref_id") @db.ObjectId
-  createdAt DateTime  @default(now()) @map("created_at")
+  id        String   @id @default(cuid())
+  accountId String
+  type      String   // 'credit' or 'debit'
+  amountGLM Int
+  refType   String   // 'pledge', 'transfer', 'repayment'
+  refId     String?
+  createdAt DateTime @default(now())
 
-  // Relations
-  account Account @relation(fields: [accountId], references: [id])
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@map("ledger_entries")
 }
 
-// Circle Model (Sponsor Circles)
+// Circle Model
 model Circle {
-  id      String   @id @default(auto()) @map("_id") @db.ObjectId
-  ownerId String   @map("owner_id") @db.ObjectId
-  name    String
-  members String[] @db.ObjectId
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id @default(cuid())
+  ownerId     String
+  name        String
+  description String?
+  members     String   @default("[]") // JSON string
+  createdAt   DateTime @default(now())
 
-  // Relations
-  owner User @relation(fields: [ownerId], references: [id])
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@map("circles")
 }
 
 // Mention Model
 model Mention {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  postId      String   @map("post_id") @db.ObjectId
-  authorId    String   @map("author_id") @db.ObjectId
-  targetUserId String  @map("target_user_id") @db.ObjectId
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String   @id @default(cuid())
+  postId      String
+  authorId    String
+  targetUserId String
+  createdAt   DateTime @default(now())
 
-  // Relations
-  post        Post @relation(fields: [postId], references: [id])
-  author    User  @relation("MentionAuthor", fields: [authorId], references: [id])
-  targetUser User @relation("MentionTarget", fields: [targetUserId], references: [id])
+  post        Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author      User @relation("MentionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  targetUser  User @relation("MentionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
 
   @@map("mentions")
 }
 
 // Comment Model
 model Comment {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  postId    String   @map("post_id") @db.ObjectId
-  authorId  String   @map("author_id") @db.ObjectId
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
   text      String
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now())
 
-  // Relations
-  post   Post @relation(fields: [postId], references: [id])
-  author User @relation(fields: [authorId], references: [id])
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@map("comments")
 }
 
 // Report Model
 model Report {
-  id         String      @id @default(auto()) @map("_id") @db.ObjectId
-  reporterId String      @map("reporter_id") @db.ObjectId
-  targetType TargetType  @map("target_type")
-  targetId   String      @map("target_id") @db.ObjectId
+  id         String   @id @default(cuid())
+  reporterId String
+  targetType String   // 'post', 'comment', 'user'
+  targetId   String
   reason     String
-  status     ReportStatus @default(PENDING)
-  createdAt  DateTime    @default(now()) @map("created_at")
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
 
-  // Relations
-  reporter User @relation(fields: [reporterId], references: [id])
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
 
   @@map("reports")
 }
 
 // Audit Log Model
 model AuditLog {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  actorId   String?  @map("actor_id") @db.ObjectId
-  action    String
-  payload   Json
-  createdAt DateTime @default(now()) @map("created_at")
+  id       String   @id @default(cuid())
+  actorId  String?
+  action   String
+  payload  String   @default("{}") // JSON string
+  createdAt DateTime @default(now())
 
-  // Relations
-  actor User? @relation(fields: [actorId], references: [id])
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@map("audit_logs")
-}
-
-// Enums
-enum Locale {
-  EN
-  ES
-}
-
-enum Category {
-  MEDICAL
-  FUNERAL
-  FOR_FUN
-  VET_BILLS
-  EDUCATION
-  COMMUNITY_PROJECTS
-  OTHER
-}
-
-enum PostStatus {
-  OPEN
-  CLOSED
-}
-
-enum PledgeType {
-  DONATION
-  CONTRACT
-}
-
-enum OwnerType {
-  USER
-  POST
-}
-
-enum EntryType {
-  CREDIT
-  DEBIT
-}
-
-enum RefType {
-  PLEDGE
-  TRANSFER
-  REPAYMENT
-}
-
-enum TargetType {
-  POST
-  COMMENT
-  USER
-}
-
-enum ReportStatus {
-  PENDING
-  REVIEWED
-  DISMISSED
 }

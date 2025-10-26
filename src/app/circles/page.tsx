@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 interface Circle {
@@ -41,8 +41,37 @@ const CirclesPage = () => {
     tags: ''
   });
 
-  // Static mock data
-  const circles: Circle[] = [
+  // State for API data
+  const [circles, setCircles] = useState<Circle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch circles from API
+  useEffect(() => {
+    const fetchCircles = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('/api/circles');
+        const data = await response.json();
+        
+        if (data.success) {
+          setCircles(data.data);
+        } else {
+          setError(data.error || 'Failed to fetch circles');
+        }
+      } catch (err) {
+        setError('Failed to fetch circles');
+        console.error('Error fetching circles:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCircles();
+  }, []);
+
+  // Static mock data for fallback
+  const mockCircles: Circle[] = [
     {
       id: '1',
       name: 'Tech Entrepreneurs',
@@ -90,12 +119,34 @@ const CirclesPage = () => {
     },
   ];
 
-  const handleCreateCircle = (e: React.FormEvent) => {
+  const handleCreateCircle = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock create circle - just close the form
-    setShowCreateForm(false);
-    setNewCircle({ name: '', description: '', tags: '' });
-    alert('Circle created successfully! (Mock)');
+    try {
+      const response = await fetch('/api/circles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newCircle.name,
+          description: newCircle.description,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setCircles(prev => [data.data, ...prev]);
+        setShowCreateForm(false);
+        setNewCircle({ name: '', description: '', tags: '' });
+        alert('Circle created successfully!');
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (err) {
+      console.error('Error creating circle:', err);
+      alert('Failed to create circle. Please try again.');
+    }
   };
 
   const handleInviteUser = (e: React.FormEvent) => {
@@ -343,7 +394,28 @@ const CirclesPage = () => {
         {/* Content based on active tab */}
         {activeTab === 'my-circles' && (
           <div className="space-y-6">
-            {circles.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-4 text-gray-600">Loading circles...</p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Error loading circles</h3>
+                <p className="text-gray-600 mb-4">{error}</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : circles.length === 0 ? (
               <div className="text-center py-12">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

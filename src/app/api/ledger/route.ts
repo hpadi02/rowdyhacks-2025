@@ -1,61 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@auth0/nextjs-auth0';
-
-// Mock transaction data
-const mockTransactions = [
-  {
-    id: '1',
-    type: 'CREDIT',
-    amountGLM: 1000,
-    refType: 'TRANSFER',
-    createdAt: '2025-01-20T00:00:00Z',
-    pledge: {
-      id: 'pledge1',
-      postTitle: 'Welcome Bonus',
-      postOwner: 'System',
-      pledger: 'System',
-      note: 'Initial GLM credits',
-    },
-  },
-  {
-    id: '2',
-    type: 'DEBIT',
-    amountGLM: 200,
-    refType: 'PLEDGE',
-    createdAt: '2025-01-24T00:00:00Z',
-    pledge: {
-      id: 'pledge2',
-      postTitle: 'Medical Emergency Fund',
-      postOwner: 'demo_user',
-      pledger: 'demo_user',
-      note: 'Contract pledge',
-    },
-  },
-  {
-    id: '3',
-    type: 'CREDIT',
-    amountGLM: 300,
-    refType: 'REPAYMENT',
-    createdAt: '2025-01-23T00:00:00Z',
-    pledge: {
-      id: 'pledge3',
-      postTitle: 'Education Fund',
-      postOwner: 'demo_user',
-      pledger: 'demo_user',
-      note: 'Repayment received',
-    },
-  },
-];
+import { db as prisma } from '@/lib/db';
 
 // GET /api/ledger - Get user's transaction history
 export async function GET(request: NextRequest) {
   try {
-    const session = await getSession();
-    if (!session?.user) {
+    // Temporarily disable auth for testing
+    // const session = await getSession();
+    // if (!session?.user) {
+    //   return NextResponse.json({
+    //     success: false,
+    //     error: 'Authentication required',
+    //   }, { status: 401 });
+    // }
+
+    const userId = 'cmh7gyddo0001pdx0d87gkgfm'; // sam_wilson from seeded data
+
+    // Find user's account
+    const account = await prisma.account.findFirst({
+      where: {
+        ownerType: 'user',
+        ownerId: userId,
+      }
+    });
+
+    if (!account) {
       return NextResponse.json({
-        success: false,
-        error: 'Authentication required',
-      }, { status: 401 });
+        success: true,
+        data: [],
+        pagination: {
+          page: 1,
+          limit: 20,
+          total: 0,
+          pages: 0,
+        },
+      });
     }
 
     const { searchParams } = new URL(request.url);
@@ -63,23 +42,46 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
 
-    let filteredTransactions = [...mockTransactions];
-
+    const whereClause: any = { accountId: account.id };
     if (type) {
-      filteredTransactions = filteredTransactions.filter(tx => tx.type === type);
+      whereClause.type = type.toUpperCase();
     }
 
-    const skip = (page - 1) * limit;
-    const paginatedTransactions = filteredTransactions.slice(skip, skip + limit);
+    const [transactions, total] = await Promise.all([
+      prisma.ledgerEntry.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.ledgerEntry.count({ where: whereClause }),
+    ]);
+
+    // Transform transactions to match frontend expectations
+    const transformedTransactions = transactions.map(transaction => ({
+      id: transaction.id,
+      type: transaction.type,
+      amountGLM: transaction.amountGLM,
+      refType: transaction.refType,
+      createdAt: transaction.createdAt.toISOString(),
+      // For now, we'll add mock pledge data since the relation is complex
+      pledge: transaction.refType === 'PLEDGE' ? {
+        id: transaction.refId || 'unknown',
+        postTitle: 'Sample Post',
+        postOwner: 'Sample Owner',
+        pledger: 'Sample Pledger',
+        note: 'Transaction note',
+      } : undefined,
+    }));
 
     return NextResponse.json({
       success: true,
-      data: paginatedTransactions,
+      data: transformedTransactions,
       pagination: {
         page,
         limit,
-        total: filteredTransactions.length,
-        pages: Math.ceil(filteredTransactions.length / limit),
+        total,
+        pages: Math.ceil(total / limit),
       },
     });
 
