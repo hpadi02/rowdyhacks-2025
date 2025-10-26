@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { getLocalData, setLocalData } from '@/lib/local-storage';
 
 interface Circle {
   id: string;
@@ -43,34 +44,41 @@ const CirclesPage = () => {
 
   // State for API data
   const [circles, setCircles] = useState<Circle[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch circles from API
-  useEffect(() => {
-    const fetchCircles = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/circles');
-        const data = await response.json();
-        
-        if (data.success) {
-          setCircles(data.data);
-        } else {
-          setError(data.error || 'Failed to fetch circles');
-        }
-      } catch (err) {
-        setError('Failed to fetch circles');
-        console.error('Error fetching circles:', err);
-      } finally {
-        setLoading(false);
-      }
+  // Enhanced console logging
+  const logUserActivity = (action: string, metadata: any) => {
+    const userMetadata = {
+      userId: 'demo_user_123',
+      handle: 'demo_user',
+      trustScore: 85,
+      verificationStatus: 'verified',
+      accountAge: '2 years',
+      totalPledges: 12,
+      totalDonated: 2500,
+      reputation: 'excellent',
+      riskLevel: 'low',
+      timestamp: new Date().toISOString(),
+      action,
+      metadata
     };
+    
+    console.log('🔍 GoLoanMe User Activity:', userMetadata);
+    console.log('📊 Trust Score Analysis:', {
+      score: userMetadata.trustScore,
+      level: userMetadata.trustScore >= 80 ? 'HIGH' : userMetadata.trustScore >= 60 ? 'MEDIUM' : 'LOW',
+      factors: {
+        verificationStatus: userMetadata.verificationStatus,
+        accountAge: userMetadata.accountAge,
+        totalPledges: userMetadata.totalPledges,
+        reputation: userMetadata.reputation
+      }
+    });
+  };
 
-    fetchCircles();
-  }, []);
-
-  // Static mock data for fallback
+  // Mock data for hackathon mode
   const mockCircles: Circle[] = [
     {
       id: '1',
@@ -102,47 +110,65 @@ const CirclesPage = () => {
     },
   ];
 
-  const invitations: Invitation[] = [
+  const mockInvitations: Invitation[] = [
     {
       id: 'inv_1',
-      circleName: 'Local Business Network',
-      invitedBy: 'business_leader',
+      circleName: 'Local Artists Collective',
+      invitedBy: 'ArtLover123',
       status: 'PENDING',
-      createdAt: '2025-01-22T10:00:00Z',
+      createdAt: '2025-01-28T10:00:00Z',
     },
     {
       id: 'inv_2',
-      circleName: 'Education Supporters',
-      invitedBy: 'edu_advocate',
+      circleName: 'Startup Founders Network',
+      invitedBy: 'InnovatorX',
       status: 'PENDING',
       createdAt: '2025-01-21T15:30:00Z',
     },
   ];
 
+  // Use local storage for hackathon mode
+  useEffect(() => {
+    setLoading(true);
+    logUserActivity('CIRCLES_PAGE_LOAD', {});
+    
+    // Simulate API delay
+    setTimeout(() => {
+      setCircles(mockCircles);
+      setInvitations(mockInvitations);
+      setLoading(false);
+      
+      logUserActivity('CIRCLES_LOADED', { 
+        count: mockCircles.length,
+        invitations: mockInvitations.length
+      });
+    }, 500);
+  }, []);
+
+
   const handleCreateCircle = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/circles', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // Create new circle with mock data (hackathon mode)
+      const newCircleData: Circle = {
+        id: Date.now().toString(),
+        name: newCircle.name,
+        description: newCircle.description,
+        memberCount: 1,
+        isOwner: true,
+        owner: {
+          id: 'user1',
+          handle: 'demo_user',
+          avatarUrl: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=DU',
+          verified: true,
         },
-        body: JSON.stringify({
-          name: newCircle.name,
-          description: newCircle.description,
-        }),
-      });
+        createdAt: new Date().toISOString(),
+      };
 
-      const data = await response.json();
-      
-      if (data.success) {
-        setCircles(prev => [data.data, ...prev]);
-        setShowCreateForm(false);
-        setNewCircle({ name: '', description: '', tags: '' });
-        alert('Circle created successfully!');
-      } else {
-        alert(`Error: ${data.error}`);
-      }
+      setCircles(prev => [newCircleData, ...prev]);
+      setShowCreateForm(false);
+      setNewCircle({ name: '', description: '', tags: '' });
+      alert('Circle created successfully!');
     } catch (err) {
       console.error('Error creating circle:', err);
       alert('Failed to create circle. Please try again.');

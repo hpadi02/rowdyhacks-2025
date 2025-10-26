@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { getLocalData, addTransaction } from '@/lib/local-storage';
 
 interface WalletData {
   balance: number;
@@ -48,39 +49,28 @@ const WalletPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch wallet data from API
+  // Use local storage for hackathon mode
   useEffect(() => {
-    const fetchWalletData = async () => {
-      try {
-        setLoading(true);
-        const [walletResponse, ledgerResponse] = await Promise.all([
-          fetch('/api/wallet'),
-          fetch('/api/ledger')
-        ]);
-        
-        const walletData = await walletResponse.json();
-        const ledgerData = await ledgerResponse.json();
-        
-        if (walletData.success) {
-          setWalletData(walletData.data);
-        } else {
-          setError(walletData.error || 'Failed to fetch wallet data');
-        }
-        
-        if (ledgerData.success) {
-          setTransactions(ledgerData.data);
-        } else {
-          console.error('Failed to fetch transactions:', ledgerData.error);
-        }
-      } catch (err) {
-        setError('Failed to fetch wallet data');
-        console.error('Error fetching wallet data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchWalletData();
+    setLoading(true);
+    // Simulate API delay
+    setTimeout(() => {
+      const localData = getLocalData();
+      const wallet = localData.wallet;
+      
+      setWalletData({
+        balance: wallet.balance,
+        totalReceived: wallet.transactions
+          .filter(t => t.type === 'CREDIT')
+          .reduce((sum, t) => sum + t.amountGLM, 0),
+        totalSent: wallet.transactions
+          .filter(t => t.type === 'DEBIT')
+          .reduce((sum, t) => sum + t.amountGLM, 0),
+        transactionCount: wallet.transactions.length,
+      });
+      
+      setTransactions(wallet.transactions);
+      setLoading(false);
+    }, 500);
   }, []);
 
   // Static mock data for fallback
@@ -186,29 +176,41 @@ const WalletPage = () => {
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/wallet/transfer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          toUser: transferData.toUser,
-          amount: parseFloat(transferData.amount),
-          note: transferData.note,
-        }),
+      // Use local storage for hackathon mode
+      const amount = parseFloat(transferData.amount);
+      if (amount <= 0) {
+        alert('Amount must be greater than 0');
+        return;
+      }
+
+      // Add transaction to local storage
+      addTransaction({
+        id: Date.now().toString(),
+        type: 'DEBIT',
+        amountGLM: amount,
+        refType: 'TRANSFER',
+        createdAt: new Date().toISOString(),
+        note: `Transfer to ${transferData.toUser}: ${transferData.note}`,
       });
 
-      const data = await response.json();
-
-      if (data.success) {
-        alert(`Transfer of ${transferData.amount} GLM to @${transferData.toUser} successful!`);
-        setShowTransferModal(false);
-        setTransferData({ toUser: '', amount: '', note: '' });
-        // Refresh wallet data
-        window.location.reload();
-      } else {
-        alert(`Transfer failed: ${data.error}`);
-      }
+      alert(`Transfer of ${transferData.amount} GLM to @${transferData.toUser} successful!`);
+      setShowTransferModal(false);
+      setTransferData({ toUser: '', amount: '', note: '' });
+      
+      // Refresh data
+      const localData = getLocalData();
+      const wallet = localData.wallet;
+      setWalletData({
+        balance: wallet.balance,
+        totalReceived: wallet.transactions
+          .filter(t => t.type === 'CREDIT')
+          .reduce((sum, t) => sum + t.amountGLM, 0),
+        totalSent: wallet.transactions
+          .filter(t => t.type === 'DEBIT')
+          .reduce((sum, t) => sum + t.amountGLM, 0),
+        transactionCount: wallet.transactions.length,
+      });
+      setTransactions(wallet.transactions);
     } catch (err) {
       console.error('Error transferring GLM:', err);
       alert('Transfer failed. Please try again.');
@@ -218,28 +220,41 @@ const WalletPage = () => {
   const handleAddCredits = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/wallet/add-credits', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount: parseFloat(addCreditsData.amount),
-          method: addCreditsData.method,
-        }),
+      // Use local storage for hackathon mode
+      const amount = parseFloat(addCreditsData.amount);
+      if (amount <= 0) {
+        alert('Amount must be greater than 0');
+        return;
+      }
+
+      // Add transaction to local storage
+      addTransaction({
+        id: Date.now().toString(),
+        type: 'CREDIT',
+        amountGLM: amount,
+        refType: 'ADD_CREDITS',
+        createdAt: new Date().toISOString(),
+        note: `Added ${amount} GLM via ${addCreditsData.method}`,
       });
 
-      const data = await response.json();
-
-      if (data.success) {
-        alert(`Added ${addCreditsData.amount} GLM credits to your wallet!`);
-        setShowAddCreditsModal(false);
-        setAddCreditsData({ amount: '', method: 'demo' });
-        // Refresh wallet data
-        window.location.reload();
-      } else {
-        alert(`Failed to add credits: ${data.error}`);
-      }
+      alert(`Added ${addCreditsData.amount} GLM credits to your wallet!`);
+      setShowAddCreditsModal(false);
+      setAddCreditsData({ amount: '', method: 'demo' });
+      
+      // Refresh data
+      const localData = getLocalData();
+      const wallet = localData.wallet;
+      setWalletData({
+        balance: wallet.balance,
+        totalReceived: wallet.transactions
+          .filter(t => t.type === 'CREDIT')
+          .reduce((sum, t) => sum + t.amountGLM, 0),
+        totalSent: wallet.transactions
+          .filter(t => t.type === 'DEBIT')
+          .reduce((sum, t) => sum + t.amountGLM, 0),
+        transactionCount: wallet.transactions.length,
+      });
+      setTransactions(wallet.transactions);
     } catch (err) {
       console.error('Error adding credits:', err);
       alert('Failed to add credits. Please try again.');
