@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { getLocalData } from '@/lib/local-storage';
 
 interface Post {
   id: string;
@@ -35,33 +36,36 @@ export default function ExplorePage() {
     search: ''
   });
 
-  // Fetch posts from API
+  // Use local storage for hackathon mode
   useEffect(() => {
-    const fetchPosts = async () => {
-      try {
-        setLoading(true);
-        const params = new URLSearchParams();
-        if (filters.category) params.append('category', filters.category);
-        if (filters.status) params.append('status', filters.status);
-        if (filters.search) params.append('q', filters.search);
+    setLoading(true);
+    // Simulate API delay
+    setTimeout(() => {
+      const localData = getLocalData();
+      let filteredPosts = localData.posts;
 
-        const response = await fetch(`/api/posts?${params.toString()}`);
-        const data = await response.json();
-
-        if (data.success) {
-          setPosts(data.data);
-        } else {
-          setError(data.error || 'Failed to fetch posts');
-        }
-      } catch (err) {
-        setError('Failed to fetch posts');
-        console.error('Error fetching posts:', err);
-      } finally {
-        setLoading(false);
+      // Apply filters
+      if (filters.category) {
+        filteredPosts = filteredPosts.filter(post => 
+          post.category.toLowerCase() === filters.category.toLowerCase()
+        );
       }
-    };
+      if (filters.status) {
+        filteredPosts = filteredPosts.filter(post => 
+          post.status.toLowerCase() === filters.status.toLowerCase()
+        );
+      }
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase();
+        filteredPosts = filteredPosts.filter(post => 
+          post.title.toLowerCase().includes(searchLower) ||
+          post.description.toLowerCase().includes(searchLower)
+        );
+      }
 
-    fetchPosts();
+      setPosts(filteredPosts);
+      setLoading(false);
+    }, 500);
   }, [filters]);
 
   const formatAmount = (amount: number) => {
