@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Image Display</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .image-test { margin: 10px 0; }
+        .image-test img { max-width: 200px; max-height: 150px; border: 1px solid #ccc; margin: 5px; }
+        .debug-info { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>Debug Image Display Issues</h1>
+    
+    <div class="test-section">
+        <h3>Test Image Upload and Display</h3>
+        <input type="file" id="imageInput" accept="image/*" multiple>
+        <div id="imageContainer"></div>
+        <div id="debugInfo" class="debug-info"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Test Local Storage Retrieval</h3>
+        <button onclick="loadFromStorage()">Load Images from Storage</button>
+        <button onclick="clearStorage()">Clear Storage</button>
+        <div id="storageContainer"></div>
+    </div>
+
+    <script>
+        let uploadedImages = [];
+
+        document.getElementById('imageInput').addEventListener('change', function(e) {
+            const files = Array.from(e.target.files);
+            console.log('Files selected:', files);
+            
+            files.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const dataUrl = e.target.result;
+                    console.log(`Image ${index + 1} converted:`, {
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        dataUrlLength: dataUrl.length,
+                        dataUrlStart: dataUrl.substring(0, 50) + '...',
+                        isValid: dataUrl.startsWith('data:image/')
+                    });
+                    
+                    // Display the image
+                    const img = document.createElement('img');
+                    img.src = dataUrl;
+                    img.alt = file.name;
+                    img.onload = () => console.log(`✅ Image ${index + 1} loaded successfully`);
+                    img.onerror = () => console.error(`❌ Image ${index + 1} failed to load`);
+                    
+                    document.getElementById('imageContainer').appendChild(img);
+                    
+                    // Store in array
+                    uploadedImages.push({
+                        name: file.name,
+                        dataUrl: dataUrl,
+                        size: file.size,
+                        type: file.type
+                    });
+                    
+                    updateDebugInfo();
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+
+        function updateDebugInfo() {
+            const info = document.getElementById('debugInfo');
+            info.innerHTML = `
+                <strong>Debug Info:</strong><br>
+                Images uploaded: ${uploadedImages.length}<br>
+                ${uploadedImages.map((img, i) => `
+                    Image ${i + 1}: ${img.name} (${img.size} bytes, ${img.type})<br>
+                    Data URL length: ${img.dataUrl.length}<br>
+                    Data URL start: ${img.dataUrl.substring(0, 50)}...<br>
+                `).join('')}
+            `;
+        }
+
+        function loadFromStorage() {
+            const stored = localStorage.getItem('goloanme-data');
+            if (stored) {
+                const data = JSON.parse(stored);
+                console.log('Loaded from storage:', data);
+                
+                const container = document.getElementById('storageContainer');
+                container.innerHTML = '<h4>Images from Storage:</h4>';
+                
+                data.posts.forEach((post, postIndex) => {
+                    if (post.images && post.images.length > 0) {
+                        const postDiv = document.createElement('div');
+                        postDiv.innerHTML = `<h5>Post: ${post.title}</h5>`;
+                        
+                        post.images.forEach((imageUrl, imgIndex) => {
+                            const img = document.createElement('img');
+                            img.src = imageUrl;
+                            img.alt = `${post.title} - Image ${imgIndex + 1}`;
+                            img.style.maxWidth = '200px';
+                            img.style.maxHeight = '150px';
+                            img.style.margin = '5px';
+                            img.style.border = '1px solid #ccc';
+                            
+                            img.onload = () => console.log(`✅ Storage image ${postIndex}-${imgIndex} loaded`);
+                            img.onerror = () => {
+                                console.error(`❌ Storage image ${postIndex}-${imgIndex} failed to load:`, imageUrl.substring(0, 50) + '...');
+                                img.style.border = '2px solid red';
+                                img.alt = 'FAILED TO LOAD';
+                            };
+                            
+                            postDiv.appendChild(img);
+                        });
+                        
+                        container.appendChild(postDiv);
+                    }
+                });
+            } else {
+                document.getElementById('storageContainer').innerHTML = '<p>No data found in storage</p>';
+            }
+        }
+
+        function clearStorage() {
+            localStorage.removeItem('goloanme-data');
+            document.getElementById('storageContainer').innerHTML = '<p>Storage cleared</p>';
+        }
+
+        // Load existing data on page load
+        window.onload = function() {
+            console.log('🚀 Debug page loaded');
+            loadFromStorage();
+        };
+    </script>
+</body>
+</html>

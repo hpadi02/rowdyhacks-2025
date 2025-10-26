@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { getLocalData, setLocalData } from '@/lib/local-storage';
 
 interface Circle {
   id: string;
@@ -43,8 +44,39 @@ const CirclesPage = () => {
 
   // State for API data
   const [circles, setCircles] = useState<Circle[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Enhanced console logging
+  const logUserActivity = (action: string, metadata: any) => {
+    const userMetadata = {
+      userId: 'demo_user_123',
+      handle: 'demo_user',
+      trustScore: 85,
+      verificationStatus: 'verified',
+      accountAge: '2 years',
+      totalPledges: 12,
+      totalDonated: 2500,
+      reputation: 'excellent',
+      riskLevel: 'low',
+      timestamp: new Date().toISOString(),
+      action,
+      metadata
+    };
+    
+    console.log('🔍 GoLoanMe User Activity:', userMetadata);
+    console.log('📊 Trust Score Analysis:', {
+      score: userMetadata.trustScore,
+      level: userMetadata.trustScore >= 80 ? 'HIGH' : userMetadata.trustScore >= 60 ? 'MEDIUM' : 'LOW',
+      factors: {
+        verificationStatus: userMetadata.verificationStatus,
+        accountAge: userMetadata.accountAge,
+        totalPledges: userMetadata.totalPledges,
+        reputation: userMetadata.reputation
+      }
+    });
+  };
 
   // Mock data for hackathon mode
   const mockCircles: Circle[] = [
@@ -95,32 +127,24 @@ const CirclesPage = () => {
     },
   ];
 
-  // Use mock data for now (hackathon mode)
+  // Use local storage for hackathon mode
   useEffect(() => {
     setLoading(true);
+    logUserActivity('CIRCLES_PAGE_LOAD', {});
+    
     // Simulate API delay
     setTimeout(() => {
       setCircles(mockCircles);
+      setInvitations(mockInvitations);
       setLoading(false);
+      
+      logUserActivity('CIRCLES_LOADED', { 
+        count: mockCircles.length,
+        invitations: mockInvitations.length
+      });
     }, 500);
   }, []);
 
-  const invitations: Invitation[] = [
-    {
-      id: 'inv_1',
-      circleName: 'Local Business Network',
-      invitedBy: 'business_leader',
-      status: 'PENDING',
-      createdAt: '2025-01-22T10:00:00Z',
-    },
-    {
-      id: 'inv_2',
-      circleName: 'Education Supporters',
-      invitedBy: 'edu_advocate',
-      status: 'PENDING',
-      createdAt: '2025-01-21T15:30:00Z',
-    },
-  ];
 
   const handleCreateCircle = async (e: React.FormEvent) => {
     e.preventDefault();

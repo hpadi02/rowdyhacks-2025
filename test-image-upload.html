@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoLoanMe Image Upload Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .image-preview { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
+        .preview-item { position: relative; }
+        .preview-item img { width: 100%; height: 100px; object-fit: cover; border-radius: 5px; }
+        .remove-btn { position: absolute; top: 5px; right: 5px; background: red; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; }
+        .upload-area { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 5px; cursor: pointer; }
+        .upload-area:hover { border-color: #007bff; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>GoLoanMe Image Upload Test</h1>
+    
+    <div class="test-section">
+        <h3>Image Upload Functionality Test</h3>
+        
+        <!-- Image Upload Area -->
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <p>Click to select images or drag and drop</p>
+            <p style="font-size: 12px; color: #666;">PNG, JPG, GIF up to 10MB each</p>
+            <input type="file" id="fileInput" multiple accept="image/*" style="display: none;" onchange="handleFileSelect(event)">
+        </div>
+        
+        <!-- Image Previews -->
+        <div id="imagePreviews" class="image-preview"></div>
+        
+        <!-- Test Buttons -->
+        <button onclick="testImageConversion()">Test Image Conversion</button>
+        <button onclick="clearImages()">Clear All Images</button>
+        <button onclick="testLocalStorage()">Test Local Storage</button>
+        
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        let selectedFiles = [];
+        let imagePreviews = [];
+
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            
+            // Validate files
+            const validFiles = files.filter(file => {
+                const isValidType = file.type.startsWith('image/');
+                const isValidSize = file.size <= 10 * 1024 * 1024; // 10MB
+                
+                if (!isValidType) {
+                    alert(`${file.name} is not a valid image file.`);
+                    return false;
+                }
+                if (!isValidSize) {
+                    alert(`${file.name} is too large. Maximum size is 10MB.`);
+                    return false;
+                }
+                return true;
+            });
+
+            if (validFiles.length > 0) {
+                selectedFiles = [...selectedFiles, ...validFiles];
+                displayPreviews();
+                
+                console.log('📸 Images Selected:', {
+                    count: validFiles.length,
+                    files: validFiles.map(f => ({ name: f.name, size: f.size, type: f.type }))
+                });
+            }
+        }
+
+        function displayPreviews() {
+            const container = document.getElementById('imagePreviews');
+            container.innerHTML = '';
+            
+            selectedFiles.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const previewDiv = document.createElement('div');
+                    previewDiv.className = 'preview-item';
+                    previewDiv.innerHTML = `
+                        <img src="${e.target.result}" alt="${file.name}">
+                        <button class="remove-btn" onclick="removeImage(${index})">×</button>
+                        <div style="position: absolute; bottom: 5px; left: 5px; background: rgba(0,0,0,0.7); color: white; padding: 2px 5px; border-radius: 3px; font-size: 10px;">
+                            ${file.name}
+                        </div>
+                    `;
+                    container.appendChild(previewDiv);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function removeImage(index) {
+            selectedFiles.splice(index, 1);
+            displayPreviews();
+            console.log('🗑️ Image Removed:', { index });
+        }
+
+        function clearImages() {
+            selectedFiles = [];
+            imagePreviews = [];
+            document.getElementById('imagePreviews').innerHTML = '';
+            document.getElementById('result').innerHTML = '<h4>All images cleared!</h4>';
+            console.log('🗑️ All Images Cleared');
+        }
+
+        async function testImageConversion() {
+            if (selectedFiles.length === 0) {
+                alert('Please select some images first!');
+                return;
+            }
+
+            const dataUrls = [];
+            
+            for (const file of selectedFiles) {
+                const reader = new FileReader();
+                const promise = new Promise(resolve => {
+                    reader.onload = e => resolve(e.target.result);
+                });
+                reader.readAsDataURL(file);
+                dataUrls.push(await promise);
+            }
+
+            document.getElementById('result').innerHTML = `
+                <h4>Image Conversion Test Results:</h4>
+                <p><strong>Files:</strong> ${selectedFiles.length}</p>
+                <p><strong>Data URLs:</strong> ${dataUrls.length}</p>
+                <p><strong>Total Size:</strong> ${dataUrls.reduce((sum, url) => sum + url.length, 0)} characters</p>
+                <details>
+                    <summary>View Data URLs (first 100 chars each)</summary>
+                    <pre>${dataUrls.map((url, i) => `${i + 1}: ${url.substring(0, 100)}...`).join('\n')}</pre>
+                </details>
+            `;
+
+            console.log('🔄 Image Conversion Test:', {
+                fileCount: selectedFiles.length,
+                dataUrlCount: dataUrls.length,
+                totalSize: dataUrls.reduce((sum, url) => sum + url.length, 0),
+                dataUrls: dataUrls.map((url, i) => ({
+                    index: i,
+                    size: url.length,
+                    type: url.split(',')[0]
+                }))
+            });
+        }
+
+        function testLocalStorage() {
+            // Simulate storing images in local storage
+            const testPost = {
+                id: 'test_post_' + Date.now(),
+                title: 'Test Post with Images',
+                images: selectedFiles.map((file, index) => {
+                    // In real app, this would be the converted data URL
+                    return `data:image/jpeg;base64,test_image_${index}`;
+                }),
+                createdAt: new Date().toISOString()
+            };
+
+            localStorage.setItem('test_post', JSON.stringify(testPost));
+            
+            const retrieved = JSON.parse(localStorage.getItem('test_post'));
+            
+            document.getElementById('result').innerHTML = `
+                <h4>Local Storage Test Results:</h4>
+                <p><strong>Stored:</strong> Post with ${retrieved.images.length} images</p>
+                <p><strong>Post ID:</strong> ${retrieved.id}</p>
+                <p><strong>Title:</strong> ${retrieved.title}</p>
+                <p><strong>Images:</strong> ${retrieved.images.length}</p>
+            `;
+
+            console.log('💾 Local Storage Test:', {
+                postId: retrieved.id,
+                title: retrieved.title,
+                imageCount: retrieved.images.length,
+                images: retrieved.images
+            });
+        }
+
+        // Initialize
+        console.log('🚀 GoLoanMe Image Upload Test Page Loaded');
+    </script>
+</body>
+</html>

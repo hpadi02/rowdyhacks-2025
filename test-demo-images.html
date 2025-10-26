@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Images Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .image-test { margin: 10px 0; }
+        .image-test img { max-width: 200px; max-height: 150px; border: 1px solid #ccc; margin: 5px; }
+        .debug-info { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; font-size: 12px; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Demo Images Test</h1>
+    
+    <div class="test-section">
+        <h3>Test Demo Images</h3>
+        <div id="imageContainer"></div>
+        <div id="debugInfo" class="debug-info"></div>
+    </div>
+
+    <script>
+        const demoImages = [
+            { name: 'Medical', path: '/images/medical.png' },
+            { name: 'Garden', path: '/images/garden.png' },
+            { name: 'Small Business', path: '/images/smallbusiness.png' }
+        ];
+
+        let loadedImages = 0;
+        let totalImages = demoImages.length;
+
+        function testImage(imageInfo) {
+            const img = document.createElement('img');
+            img.src = imageInfo.path;
+            img.alt = imageInfo.name;
+            
+            img.onload = function() {
+                loadedImages++;
+                console.log(`✅ ${imageInfo.name} image loaded successfully`);
+                updateDebugInfo();
+            };
+            
+            img.onerror = function() {
+                console.error(`❌ ${imageInfo.name} image failed to load`);
+                updateDebugInfo();
+            };
+            
+            const container = document.createElement('div');
+            container.className = 'image-test';
+            container.innerHTML = `<h4>${imageInfo.name}</h4>`;
+            container.appendChild(img);
+            
+            document.getElementById('imageContainer').appendChild(container);
+        }
+
+        function updateDebugInfo() {
+            const info = document.getElementById('debugInfo');
+            const successRate = (loadedImages / totalImages * 100).toFixed(1);
+            
+            info.innerHTML = `
+                <strong>Demo Images Test Results:</strong><br>
+                Total Images: ${totalImages}<br>
+                Loaded Successfully: <span class="${loadedImages === totalImages ? 'success' : 'error'}">${loadedImages}</span><br>
+                Success Rate: <span class="${loadedImages === totalImages ? 'success' : 'error'}">${successRate}%</span><br>
+                <br>
+                <strong>Image Details:</strong><br>
+                ${demoImages.map(img => `
+                    ${img.name}: ${img.path}<br>
+                `).join('')}
+            `;
+        }
+
+        // Test all demo images
+        demoImages.forEach(testImage);
+
+        // Initialize
+        console.log('🚀 Demo Images Test Started');
+        updateDebugInfo();
+    </script>
+</body>
+</html>

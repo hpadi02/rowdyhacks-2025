@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoLoanMe Local Storage Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>GoLoanMe Local Storage Test</h1>
+    
+    <div class="test-section">
+        <h3>Test Local Storage Functions</h3>
+        <button onclick="testGetData()">Get Local Data</button>
+        <button onclick="testAddPost()">Add Test Post</button>
+        <button onclick="testAddTransaction()">Add Test Transaction</button>
+        <button onclick="clearStorage()">Clear Storage</button>
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        // Simulate the local storage functions from your app
+        const STORAGE_KEY = 'goloanme-data';
+        
+        function getLocalData() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                return JSON.parse(stored);
+            }
+            
+            // Initialize with demo data
+            const initialData = {
+                posts: [
+                    {
+                        id: '1',
+                        title: 'Test Medical Fund',
+                        description: 'Need help with medical expenses',
+                        category: 'Medical',
+                        goal: 1000,
+                        totalRaised: 250,
+                        status: 'open',
+                        acceptContracts: true,
+                        createdAt: new Date().toISOString()
+                    }
+                ],
+                wallet: {
+                    balance: 1000,
+                    transactions: [
+                        {
+                            id: '1',
+                            type: 'CREDIT',
+                            amountGLM: 1000,
+                            refType: 'INITIAL',
+                            createdAt: new Date().toISOString()
+                        }
+                    ]
+                }
+            };
+            
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+            return initialData;
+        }
+        
+        function addTransaction(transaction) {
+            const data = getLocalData();
+            data.wallet.transactions.unshift(transaction);
+            data.wallet.balance += transaction.type === 'CREDIT' ? transaction.amountGLM : -transaction.amountGLM;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            
+            console.log('💳 Transaction Processed:', {
+                transactionId: transaction.id,
+                type: transaction.type,
+                amount: transaction.amountGLM,
+                newBalance: data.wallet.balance,
+                timestamp: transaction.createdAt
+            });
+        }
+        
+        function testGetData() {
+            const data = getLocalData();
+            document.getElementById('result').innerHTML = 
+                '<h4>Local Data Retrieved:</h4>' +
+                '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            console.log('📊 Local Storage Data:', data);
+        }
+        
+        function testAddPost() {
+            const data = getLocalData();
+            const newPost = {
+                id: 'test_' + Date.now(),
+                title: 'Test Post ' + Date.now(),
+                description: 'This is a test post',
+                category: 'Test',
+                goal: 500,
+                totalRaised: 0,
+                status: 'open',
+                acceptContracts: false,
+                createdAt: new Date().toISOString()
+            };
+            data.posts.unshift(newPost);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            
+            document.getElementById('result').innerHTML = 
+                '<h4>Post Added:</h4>' +
+                '<pre>' + JSON.stringify(newPost, null, 2) + '</pre>';
+            console.log('📝 New Post Created:', newPost);
+        }
+        
+        function testAddTransaction() {
+            const transaction = {
+                id: 'txn_' + Date.now(),
+                type: 'DEBIT',
+                amountGLM: 50,
+                refType: 'TEST',
+                refId: 'test_post',
+                createdAt: new Date().toISOString(),
+                note: 'Test transaction'
+            };
+            
+            addTransaction(transaction);
+            
+            const data = getLocalData();
+            document.getElementById('result').innerHTML = 
+                '<h4>Transaction Added:</h4>' +
+                '<pre>' + JSON.stringify(transaction, null, 2) + '</pre>' +
+                '<p><strong>New Balance:</strong> ' + data.wallet.balance + ' GLM</p>';
+        }
+        
+        function clearStorage() {
+            localStorage.removeItem(STORAGE_KEY);
+            document.getElementById('result').innerHTML = '<h4>Storage Cleared!</h4>';
+            console.log('🗑️ Local Storage Cleared');
+        }
+        
+        // Initialize on page load
+        window.onload = function() {
+            console.log('🚀 GoLoanMe Local Storage Test Page Loaded');
+            console.log('📱 Current URL:', window.location.href);
+            console.log('💾 Storage Key:', STORAGE_KEY);
+        };
+    </script>
+</body>
+</html>

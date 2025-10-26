@@ -45,7 +45,7 @@ export const getLocalData = (): LocalStorageData => {
         owner: {
           id: 'user1',
           handle: 'carmen_rodriguez',
-          avatarUrl: 'https://via.placeholder.com/150/FF6B6B/FFFFFF?text=CR',
+          avatarUrl: null,
           verified: false,
         },
         createdAt: new Date().toISOString(),
@@ -69,7 +69,7 @@ export const getLocalData = (): LocalStorageData => {
         owner: {
           id: 'user2',
           handle: 'sam_wilson',
-          avatarUrl: 'https://via.placeholder.com/150/4ECDC4/FFFFFF?text=SW',
+          avatarUrl: null,
           verified: true,
         },
         createdAt: new Date().toISOString(),
@@ -93,7 +93,7 @@ export const getLocalData = (): LocalStorageData => {
         owner: {
           id: 'user3',
           handle: 'sofia_martinez',
-          avatarUrl: 'https://via.placeholder.com/150/45B7D1/FFFFFF?text=SM',
+          avatarUrl: null,
           verified: true,
         },
         createdAt: new Date().toISOString(),
@@ -162,6 +162,24 @@ export const addTransaction = (transaction: any): void => {
   data.wallet.transactions.unshift(transaction);
   data.wallet.balance += transaction.type === 'CREDIT' ? transaction.amountGLM : -transaction.amountGLM;
   setLocalData(data);
+  
+  // Enhanced console logging for transactions
+  console.log('💳 Transaction Processed:', {
+    transactionId: transaction.id,
+    type: transaction.type,
+    amount: transaction.amountGLM,
+    refType: transaction.refType,
+    refId: transaction.refId,
+    timestamp: transaction.createdAt,
+    newBalance: data.wallet.balance,
+    note: transaction.note
+  });
+  
+  console.log('📊 Wallet Status:', {
+    balance: data.wallet.balance,
+    transactionCount: data.wallet.transactions.length,
+    lastTransaction: transaction
+  });
 };
 
 export const addTerms = (terms: any): void => {
