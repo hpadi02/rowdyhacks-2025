@@ -1,0 +1,263 @@
+// GoLoanMe Database Schema
+// Based on .cursorrules specifications
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// Core User Model
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  auth0Sub  String   @unique @map("auth0_sub")
+  email     String   @unique
+  handle    String   @unique
+  bio       String?
+  avatarUrl String?  @map("avatar_url")
+  locale    Locale   @default(EN)
+  interests String[]
+  verified  Boolean  @default(false)
+  rating    Float?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  posts     Post[]
+  pledges   Pledge[]
+  accounts  Account[]
+  circles   Circle[]
+  mentions  Mention[] @relation("MentionAuthor")
+  targetMentions Mention[] @relation("MentionTarget")
+  comments  Comment[]
+  reports   Report[]
+  auditLogs AuditLog[]
+  termsTemplates TermsTemplate[]
+
+  @@map("users")
+}
+
+// Post Model
+model Post {
+  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId        String     @map("owner_id") @db.ObjectId
+  title          String
+  description    String
+  category       Category
+  images         String[]
+  links          String[]
+  acceptContracts Boolean   @default(false) @map("accept_contracts")
+  status         PostStatus @default(OPEN)
+  goal           Int?
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  owner    User      @relation(fields: [ownerId], references: [id])
+  pledges  Pledge[]
+  mentions Mention[]
+  comments Comment[]
+  accounts Account[]
+
+  @@map("posts")
+}
+
+// Pledge Model
+model Pledge {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  postId    String      @map("post_id") @db.ObjectId
+  pledgerId String      @map("pledger_id") @db.ObjectId
+  type      PledgeType
+  amountGLM Int         @map("amount_glm")
+  termsId   String?     @map("terms_id") @db.ObjectId
+  note      String?
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  // Relations
+  post   Post        @relation(fields: [postId], references: [id])
+  pledger User       @relation(fields: [pledgerId], references: [id])
+  terms  TermsTemplate? @relation(fields: [termsId], references: [id])
+
+  @@map("pledges")
+}
+
+// Terms Template Model
+model TermsTemplate {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @map("user_id") @db.ObjectId
+  title      String
+  inputsJson Json     @map("inputs_json")
+  llmVersion String   @map("llm_version")
+  html       String
+  pdfUrl     String?  @map("pdf_url")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user   User     @relation(fields: [userId], references: [id])
+  pledges Pledge[]
+
+  @@map("terms_templates")
+}
+
+// Account Model (for GLM credits)
+model Account {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  ownerType OwnerType @map("owner_type")
+  ownerId   String    @map("owner_id") @db.ObjectId
+  balanceGLM Int      @default(0) @map("balance_glm")
+
+  // Relations
+  user User? @relation(fields: [ownerId], references: [id])
+  post Post? @relation(fields: [ownerId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@map("accounts")
+}
+
+// Ledger Entry Model (Immutable)
+model LedgerEntry {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  accountId String    @map("account_id") @db.ObjectId
+  type      EntryType
+  amountGLM Int       @map("amount_glm")
+  refType   RefType   @map("ref_type")
+  refId     String    @map("ref_id") @db.ObjectId
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@map("ledger_entries")
+}
+
+// Circle Model (Sponsor Circles)
+model Circle {
+  id      String   @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId String   @map("owner_id") @db.ObjectId
+  name    String
+  members String[] @db.ObjectId
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@map("circles")
+}
+
+// Mention Model
+model Mention {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId      String   @map("post_id") @db.ObjectId
+  authorId    String   @map("author_id") @db.ObjectId
+  targetUserId String  @map("target_user_id") @db.ObjectId
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  post        Post @relation(fields: [postId], references: [id])
+  author    User  @relation("MentionAuthor", fields: [authorId], references: [id])
+  targetUser User @relation("MentionTarget", fields: [targetUserId], references: [id])
+
+  @@map("mentions")
+}
+
+// Comment Model
+model Comment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId    String   @map("post_id") @db.ObjectId
+  authorId  String   @map("author_id") @db.ObjectId
+  text      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  post   Post @relation(fields: [postId], references: [id])
+  author User @relation(fields: [authorId], references: [id])
+
+  @@map("comments")
+}
+
+// Report Model
+model Report {
+  id         String      @id @default(auto()) @map("_id") @db.ObjectId
+  reporterId String      @map("reporter_id") @db.ObjectId
+  targetType TargetType  @map("target_type")
+  targetId   String      @map("target_id") @db.ObjectId
+  reason     String
+  status     ReportStatus @default(PENDING)
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  // Relations
+  reporter User @relation(fields: [reporterId], references: [id])
+
+  @@map("reports")
+}
+
+// Audit Log Model
+model AuditLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  actorId   String?  @map("actor_id") @db.ObjectId
+  action    String
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Enums
+enum Locale {
+  EN
+  ES
+}
+
+enum Category {
+  MEDICAL
+  FUNERAL
+  FOR_FUN
+  VET_BILLS
+  EDUCATION
+  COMMUNITY_PROJECTS
+  OTHER
+}
+
+enum PostStatus {
+  OPEN
+  CLOSED
+}
+
+enum PledgeType {
+  DONATION
+  CONTRACT
+}
+
+enum OwnerType {
+  USER
+  POST
+}
+
+enum EntryType {
+  CREDIT
+  DEBIT
+}
+
+enum RefType {
+  PLEDGE
+  TRANSFER
+  REPAYMENT
+}
+
+enum TargetType {
+  POST
+  COMMENT
+  USER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
