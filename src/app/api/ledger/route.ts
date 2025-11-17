@@ -1,20 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@auth0/nextjs-auth0';
+import { getMockSession } from '@/lib/mock-auth';
 import { db as prisma } from '@/lib/db';
 
 // GET /api/ledger - Get user's transaction history
 export async function GET(request: NextRequest) {
   try {
-    // Temporarily disable auth for testing
-    // const session = await getSession();
-    // if (!session?.user) {
-    //   return NextResponse.json({
-    //     success: false,
-    //     error: 'Authentication required',
-    //   }, { status: 401 });
-    // }
+    const session = getMockSession(request);
+    if (!session?.user) {
+      return NextResponse.json({
+        success: false,
+        error: 'Authentication required',
+      }, { status: 401 });
+    }
 
-    const userId = 'cmh7gyddo0001pdx0d87gkgfm'; // sam_wilson from seeded data
+    // Get or create user from session
+    let user = await prisma.user.findUnique({
+      where: { auth0Sub: session.user.sub },
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          auth0Sub: session.user.sub,
+          email: session.user.email || '',
+          handle: session.user.nickname || session.user.email?.split('@')[0] || 'user',
+          avatarUrl: session.user.picture,
+        },
+      });
+    }
+
+    const userId = user.id;
 
     // Find user's account
     const account = await prisma.account.findFirst({
