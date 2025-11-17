@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@auth0/nextjs-auth0';
+import { getMockSession } from '@/lib/mock-auth';
 import { db as prisma } from '@/lib/db';
 
 // GET /api/posts - List posts with filters
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
 // POST /api/posts - Create new post
 export async function POST(request: NextRequest) {
   try {
-    const session = await getSession();
+    const session = getMockSession(request);
     if (!session?.user) {
       return NextResponse.json({
         success: false,
@@ -132,7 +132,24 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const userId = 'test-user-id'; // Mock user ID for now
+    
+    // Get or create user from session
+    let user = await prisma.user.findUnique({
+      where: { auth0Sub: session.user.sub },
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          auth0Sub: session.user.sub,
+          email: session.user.email || '',
+          handle: session.user.nickname || session.user.email?.split('@')[0] || 'user',
+          avatarUrl: session.user.picture,
+        },
+      });
+    }
+
+    const userId = user.id;
 
     const newPost = await prisma.post.create({
       data: {

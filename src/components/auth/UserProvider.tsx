@@ -1,7 +1,8 @@
 'use client';
 
-import { UserProvider as Auth0UserProvider } from '@auth0/nextjs-auth0/client';
+// Use MockAuth instead of Auth0
+import { UserProvider as MockUserProvider } from './MockAuth';
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  return <Auth0UserProvider>{children}</Auth0UserProvider>;
+  return <MockUserProvider>{children}</MockUserProvider>;
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@auth0/nextjs-auth0';
+import { getMockSession } from '@/lib/mock-auth';
 import { db } from '@/lib/db';
 import { z } from 'zod';
 
@@ -79,7 +79,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getSession();
+    const session = getMockSession(request);
     if (!session?.user) {
       return NextResponse.json({
         success: false,

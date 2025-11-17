@@ -25,7 +25,18 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     // Simulate loading from local storage or a session
     const storedUser = localStorage.getItem('mockUser');
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const user = JSON.parse(storedUser);
+      setUser(user);
+      
+      // Set headers for API requests
+      if (typeof window !== 'undefined') {
+        (window as any).__mockAuthUser = {
+          id: 'mock|demo-user-123',
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+        };
+      }
     }
     setIsLoading(false);
   }, []);
@@ -38,11 +49,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     };
     setUser(mockUser);
     localStorage.setItem('mockUser', JSON.stringify(mockUser));
+    
+    // Set headers for API requests
+    if (typeof window !== 'undefined') {
+      // Store user info for fetch interceptor
+      (window as any).__mockAuthUser = {
+        id: 'mock|demo-user-123',
+        email: mockUser.email,
+        name: mockUser.name,
+        picture: mockUser.picture,
+      };
+    }
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem('mockUser');
+    
+    // Clear headers for API requests
+    if (typeof window !== 'undefined') {
+      delete (window as any).__mockAuthUser;
+    }
   };
 
   return (

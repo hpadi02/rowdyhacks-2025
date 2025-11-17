@@ -2,10 +2,10 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { useUser } from '@auth0/nextjs-auth0/client';
+import { useUser } from '@/components/auth/MockAuth';
 
 export function AuthHeader() {
-  const { user, isLoading } = useUser();
+  const { user, isLoading, login, logout } = useUser();
 
   // Log Auth0 state
   console.log('AuthHeader - user:', user);
@@ -58,34 +58,36 @@ export function AuthHeader() {
             ) : user ? (
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
-                  <img
-                    src={user.picture}
-                    alt={user.name}
-                    className="w-8 h-8 rounded-full"
-                  />
+                  {user.picture && (
+                    <img
+                      src={user.picture}
+                      alt={user.name}
+                      className="w-8 h-8 rounded-full"
+                    />
+                  )}
                   <span className="text-sm font-medium text-gray-900">{user.name}</span>
                 </div>
-                <a
-                  href="/api/auth/logout"
+                <button
+                  onClick={logout}
                   className="text-gray-600 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200"
                 >
                   Log out
-                </a>
+                </button>
               </div>
             ) : (
               <>
-                <a
-                  href="/api/auth/login"
+                <button
+                  onClick={login}
                   className="text-gray-600 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200"
                 >
                   Log in
-                </a>
-                <a
-                  href="/api/auth/login?screen_hint=signup"
+                </button>
+                <button
+                  onClick={login}
                   className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200"
                 >
                   Sign up
-                </a>
+                </button>
               </>
             )}
           </div>
